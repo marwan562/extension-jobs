@@ -75,6 +75,12 @@ export interface RawJob {
   remote?: boolean;
   seniority?: string;
   salary?: string;
+  requirements?: string[];
+  responsibilities?: string[];
+  experienceLevel?: string;
+  employmentType?: string;
+  applicationAvailable?: boolean;
+  discoveredAt?: string;
 }
 
 export interface Job extends RawJob {
