@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "OpenClaw Job Control Center",
+  "version": "0.1.0",
+  "description": "Local-first job research and application review control center.",
+  "permissions": ["sidePanel", "storage", "activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1:18790/*", "http://127.0.0.1:18791/*"],
+  "background": { "service_worker": "dist/service-worker.js", "type": "module" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "options_page": "options.html",
+  "action": { "default_title": "OpenClaw Job Control Center" },
+  "content_scripts": [{ "matches": ["http://127.0.0.1:18791/*"], "js": ["dist/content-script.js"] }],
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'" }
+}
