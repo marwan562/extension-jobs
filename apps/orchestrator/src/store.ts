@@ -16,6 +16,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS applications (id TEXT PRIMARY KEY, job_id TEXT NOT NULL, state TEXT NOT NULL, submission_key TEXT UNIQUE, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL, application_id TEXT, at TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS approval_tokens (id TEXT PRIMARY KEY, application_id TEXT NOT NULL, token_hash TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS resume_files (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, source_name TEXT NOT NULL, content BLOB NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS locks (key TEXT PRIMARY KEY, acquired_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS audit_correlation_idx ON audit_events(correlation_id, at);`);
@@ -23,6 +24,8 @@ export class Store {
   saveProfile(profile: CandidateProfile): void { this.db.prepare('INSERT INTO profiles VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at').run(profile.id, JSON.stringify(profile), profile.updatedAt); }
   getProfile(id: string): CandidateProfile | undefined { const row = this.db.prepare('SELECT data FROM profiles WHERE id=?').get(id) as { data: string } | undefined; return row ? JSON.parse(row.data) as CandidateProfile : undefined; }
   listProfiles(): CandidateProfile[] { return (this.db.prepare('SELECT data FROM profiles ORDER BY updated_at DESC').all() as Array<{ data: string }>).map((r) => JSON.parse(r.data) as CandidateProfile); }
+  saveResumeFile(profileId: string, resumeId: string, sourceName: string, content: Uint8Array): void { this.db.prepare('INSERT INTO resume_files VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET content=excluded.content, source_name=excluded.source_name').run(resumeId, profileId, sourceName, Buffer.from(content), new Date().toISOString()); }
+  getResumeFile(profileId: string, resumeId: string): { sourceName: string; content: Uint8Array } | undefined { const row = this.db.prepare('SELECT source_name, content FROM resume_files WHERE id=? AND profile_id=?').get(resumeId, profileId) as { source_name: string; content: Uint8Array } | undefined; return row ? { sourceName: row.source_name, content: row.content } : undefined; }
   saveAgentSettings(settings: AgentSettings): void { this.db.prepare('INSERT INTO settings VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET data=excluded.data').run('agents', JSON.stringify(settings)); }
   getAgentSettings(): AgentSettings | undefined { const row = this.db.prepare('SELECT data FROM settings WHERE key=?').get('agents') as { data: string } | undefined; return row ? JSON.parse(row.data) as AgentSettings : undefined; }
   saveCampaign(campaign: JobCampaign): void { this.db.prepare('INSERT INTO campaigns VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at').run(campaign.id, JSON.stringify(campaign), campaign.updatedAt); }

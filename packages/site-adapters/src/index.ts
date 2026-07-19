@@ -4,7 +4,7 @@ export { normalizeWuzzufUrl, sourceIdFromWuzzufUrl, parseWuzzufSearchHtml, parse
 
 export interface AdapterContext { correlationId: string; dryRun: boolean; signal: AbortSignal }
 export interface FormField { id: string; label: string; type: 'text' | 'email' | 'tel' | 'select' | 'radio' | 'checkbox' | 'file'; required: boolean; options?: string[] }
-export interface ApprovedFile { id: string; path: string; approved: boolean }
+export interface ApprovedFile { id: string; path?: string; content?: Uint8Array; sourceName?: string; approved: boolean }
 export interface JobSiteAdapter {
   id: string;
   matches(url: URL): boolean;

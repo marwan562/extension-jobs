@@ -20,10 +20,11 @@ async function route(message: Message, _sender: unknown): Promise<unknown> {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }); if (!tab?.id) throw new Error('No active tab');
     return chrome.tabs.sendMessage(tab.id, { type: 'fill-approved', answers: message.answers, dryRun: message.dryRun !== false });
   }
+  if (message.type === 'wuzzuf') return api(`/v1/wuzzuf/tools/${encodeURIComponent(String(message.action))}`, 'POST', message.body ?? {});
   const routes: Record<string, { path: string; method?: string; body?: unknown }> = {
     dashboard: { path: '/v1/dashboard' }, importProfile: { path: '/v1/profiles/import', method: 'POST', body: message.body },
     createCampaign: { path: '/v1/campaigns', method: 'POST', body: message.body }, runCampaign: { path: `/v1/campaigns/${encodeURIComponent(String(message.id))}/run`, method: 'POST' }, pauseCampaign: { path: `/v1/campaigns/${encodeURIComponent(String(message.id))}/pause`, method: 'POST' }, resumeCampaign: { path: `/v1/campaigns/${encodeURIComponent(String(message.id))}/resume`, method: 'POST' },
-    updateFact: { path: `/v1/profiles/${encodeURIComponent(String(message.profileId))}/facts/${encodeURIComponent(String(message.factId))}`, method: 'POST', body: { value: message.value } }, models: { path: '/v1/models' }, saveAgentSettings: { path: '/v1/agent-settings', method: 'POST', body: message.body }, prepareAnswers: { path: '/v1/answers/prepare', method: 'POST', body: message.body },
+    updateFact: { path: `/v1/profiles/${encodeURIComponent(String(message.profileId))}/facts/${encodeURIComponent(String(message.factId))}`, method: 'POST', body: { value: message.value } }, approveResume: { path: `/v1/profiles/${encodeURIComponent(String(message.profileId))}/resumes/${encodeURIComponent(String(message.resumeId))}/approve`, method: 'POST', body: { approved: message.approved === true } }, models: { path: '/v1/models' }, saveAgentSettings: { path: '/v1/agent-settings', method: 'POST', body: message.body }, prepareAnswers: { path: '/v1/answers/prepare', method: 'POST', body: message.body },
     recordFill: { path: `/v1/applications/${encodeURIComponent(String(message.applicationId))}/fill-result`, method: 'POST', body: message.body },
     emergencyStop: { path: '/v1/emergency-stop', method: 'POST' }, resetStop: { path: '/v1/emergency-stop/reset', method: 'POST' }
   };
@@ -34,7 +35,7 @@ async function route(message: Message, _sender: unknown): Promise<unknown> {
 async function token(): Promise<string> { const { bridgeSession } = await chrome.storage.session.get('bridgeSession'); if (!bridgeSession?.token) throw new Error('Pair with the orchestrator first'); return bridgeSession.token; }
 async function api(path: string, method: string, body?: unknown): Promise<unknown> {
   const response = await fetch(`${BRIDGE}${path}`, { method, headers: { authorization: `Bearer ${await token()}`, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
-  const value = await response.json(); if (!response.ok) throw new Error(value.error ?? `Bridge returned ${response.status}`); return value;
+  const value = await response.json(); if (!response.ok) throw new Error(typeof value.error === 'object' ? `${value.error.code}: ${value.error.message}` : value.error ?? `Bridge returned ${response.status}`); return value;
 }
 async function streamChat(text: string, profileId?: string): Promise<void> {
   try {

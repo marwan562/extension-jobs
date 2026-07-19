@@ -46,6 +46,7 @@ export class WuzzufAdapter implements JobSiteAdapter {
   }
 
   matches(url: URL): boolean { try { return normalizeWuzzufUrl(url.href, this.baseUrl) === normalizeWuzzufUrl(url.href, this.baseUrl); } catch { return false; } }
+  normalizeUrl(value: string): string { return normalizeWuzzufUrl(value, this.baseUrl); }
 
   async authenticate(context: AdapterContext): Promise<{ status: 'authenticated' | 'handoff_required'; reason?: string }> {
     context.signal.throwIfAborted(); const state = await this.authenticationStatus(context.signal);
@@ -78,12 +79,12 @@ export class WuzzufAdapter implements JobSiteAdapter {
         while (jobs.length < limit && pageNumber < 10) {
           const search = new URL('/search/jobs/', this.baseUrl); search.searchParams.set('q', query); search.searchParams.set('l', location); if (pageNumber) search.searchParams.set('start', String(pageNumber));
           const page = await this.newPage(this.headless); try {
-            await this.goto(page, search.href); const parsed = parseWuzzufSearchHtml(await page.content(), this.baseUrl);
+            await this.goto(page, search.href); const parsed = parseWuzzufSearchHtml(await page.content(), this.baseUrl); const before = jobs.length;
             for (const job of parsed) {
               if (seen.has(job.sourceId) || (input.remote === true && !job.remote) || (input.experienceLevel && job.experienceLevel !== input.experienceLevel.toLowerCase()) || (input.employmentTypes?.length && !input.employmentTypes.map((value) => value.toLowerCase()).includes(job.employmentType ?? ''))) continue;
               seen.add(job.sourceId); jobs.push(job); if (jobs.length >= limit) break;
             }
-            if (parsed.length === 0) break;
+            if (parsed.length === 0 || jobs.length === before) break;
           } catch (error) { throw await this.withDiagnostics(error, page, 'search'); } finally { await page.close(); }
           pageNumber += 1;
         }
@@ -130,7 +131,7 @@ export class WuzzufAdapter implements JobSiteAdapter {
   }
 
   async uploadApprovedFile(session: { id: string }, file: ApprovedFile): Promise<{ uploaded: boolean }> {
-    if (!file.approved) throw new WuzzufToolError('WUZZUF_RESUME_NOT_APPROVED', 'Resume must be explicitly approved'); const page = this.page(session.id); const input = page.locator('input[type="file"]').first(); if (!await input.count()) return { uploaded: false }; await input.setInputFiles(file.path); return { uploaded: true };
+    if (!file.approved) throw new WuzzufToolError('WUZZUF_RESUME_NOT_APPROVED', 'Resume must be explicitly approved'); const page = this.page(session.id); const input = page.locator('input[type="file"]').first(); if (!await input.count()) return { uploaded: false }; if (file.content) { const name = file.sourceName ?? 'approved-resume.pdf'; await input.setInputFiles({ name, mimeType: name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'text/plain', buffer: Buffer.from(file.content) }); } else if (file.path) await input.setInputFiles(file.path); else throw new WuzzufToolError('WUZZUF_RESUME_DATA_MISSING', 'Approved resume data is unavailable', { status: 409 }); return { uploaded: true };
   }
 
   async validate(session: { id: string }): Promise<{ valid: boolean; errors: string[] }> {

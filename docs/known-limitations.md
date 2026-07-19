@@ -1,9 +1,11 @@
-# Known platform limitations
+# Known limitations
 
-- The current workspace was empty; the older sibling prototype was inspected read-only and not modified. Its useful mock-form and OpenClaw concepts were adapted, while unsafe wildcard CORS, direct page access, in-memory approval, and credential fallback were not reused.
-- CV import accepts PDF, text, and Markdown and extracts contact data, links, and a skills line deterministically. Imported facts are editable and edits record user verification; DOCX and richer experience/education parsing remain next work. Imported CV variants begin unapproved.
-- Friendly schedules support daily and weekdays, but there is not yet a background cron tick/next-run calculator, lock leasing, quiet-hours executor, or missed-run recovery.
-- Composio discovery is implemented behind a CLI adapter but requires the connected account's confirmed LinkedIn read-tool slug/schema. Sandbox network access prevented tool discovery during this milestone.
-- The Playwright development adapter targets only the local mock site. Greenhouse and Lever are next; Wuzzuf/Indeed/Workday require fixtures and policy review.
-- The focused side panel exposes OpenClaw chat, resume facts, semantic application review, per-task local models, dry-run, and emergency stop. Notification configuration, cost charts, trace retention UI, and failure retry history remain incremental milestones.
-- Native Messaging and OS credential-store integration are required for production hardening.
+- Wuzzuf can change markup or application steps. Unknown layouts fail closed with `WUZZUF_UNSUPPORTED_LAYOUT` and a local diagnostic screenshot; selectors/fixtures must then be reviewed.
+- Multi-step forms are detected and fixture-covered, but the adapter does not automatically advance arbitrary step sequences. Prepare again after a supported adapter update.
+- CAPTCHA, anti-bot, MFA, and security challenges are never bypassed. Complete them manually in the persistent login browser.
+- A running application browser page is process-local. After an orchestrator restart, durable review/status remains available but fill/submit requires preparing a new active session.
+- Resume parsing is deterministic and limited to PDF/text/Markdown contact, links, and a skills line. Resume approval is explicit. Uploaded bytes remain in the local SQLite database.
+- Only verified high-confidence non-sensitive values fill automatically. Salary, sponsorship, work authorization, legal, demographic, disability, clearance, relocation, and file questions remain blocked for human review.
+- Composio custom toolkits run in the TypeScript process and are not supported through Composio MCP sessions. The SDK is experimental and its prefix/config API may change.
+- Live Wuzzuf submission is deliberately untested. Automated coverage uses the loopback mock site; production use should begin in dry-run.
+- Native Messaging and OS credential-store integration remain future hardening; current transport is loopback with exact-origin CORS, pairing, short sessions, rate limits, and timeouts.

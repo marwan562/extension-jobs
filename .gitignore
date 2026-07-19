@@ -1,6 +1,8 @@
 node_modules/
 dist/
 data/
+.data/
+browser-profiles/
 uploads/
 artifacts/
 .env

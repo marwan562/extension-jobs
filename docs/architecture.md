@@ -1,24 +1,24 @@
-# Architecture overview
-
-The system is an npm workspace-shaped modular TypeScript codebase without package publishing boundaries yet.
+# Architecture
 
 ```text
-content script -> MV3 service worker -> authenticated loopback bridge -> orchestrator
-                                                       |-> OpenClaw provider
-                                                       |-> Composio CLI source
-                                                       |-> SQLite repositories
-                                                       `-> Playwright site adapter
+OpenClaw
+  -> job_automation TypeBox tool
+  -> authenticated loopback API
+  -> WuzzufToolService
+  -> WuzzufAdapter
+  -> Playwright persistent context
+  -> Wuzzuf
+
+Composio session
+  -> local wuzzuf custom toolkit
+  -> short-lived paired bearer session
+  -> same loopback API / service / adapter
 ```
 
-- `apps/extension` contains the side panel, settings, least-privilege content script, and credential-owning service worker. The content script receives only approved field values.
-- `apps/orchestrator` owns pairing, chat streaming, campaigns, locking, durable transitions, audit events, emergency stop, job sources, and persistence.
-- `apps/playwright-worker` contains a semantic development adapter and local mock site. It intentionally has no `submit` method.
-- `apps/openclaw-tool` is the narrow OpenClaw plugin surface. It uses a separate backend-only token and exposes typed profile, answer, campaign, status, and stop actions.
-- `packages/shared` owns schemas, validation, schedule parsing, normalization, deduplication, scoring, and the state graph.
-- `packages/profile-engine` owns fact provenance, deterministic retrieval, sensitive classification, and answer metadata.
-- `packages/site-adapters` defines the adapter/source contracts and Composio CLI boundary.
-- `packages/provider-sdk` defines streaming provider contracts and the OpenAI-compatible/OpenClaw implementation.
+`WuzzufToolService` is the trust boundary. It resolves and persists normalized jobs, calls the existing profile engine and `scoreJob`, selects only an approved resume, classifies answers, acquires application/submission locks, follows the shared state graph, enforces dry-run/emergency-stop/duplicate rules, hashes and consumes one-use approval tokens, and writes immutable audit events. It returns serializable records only.
 
-SQLite uses WAL mode and repository methods, keeping storage calls out of domain logic. A PostgreSQL implementation can replace `Store` without changing the extension or adapters. Every run obtains a correlation ID; application timelines use immutable audit events. A unique submission key and state graph are the defense against duplicate submission.
+`WuzzufAdapter` owns all browser behavior. Selectors are isolated in `wuzzuf-selectors.ts`; fixture-testable parsing and URL normalization live in `wuzzuf-parser.ts`. The adapter launches one configurable persistent profile, checks authentication, stops on CAPTCHA/challenge pages, blocks unsupported redirects, respects abort signals, captures diagnostic screenshots, and closes application pages on cancellation and all resources at shutdown.
 
-The localhost transport is an explicit milestone interface. Native Messaging should implement the same typed request/stream semantics for production.
+SQLite uses WAL, unique job fingerprints, submission reservations, application records, approval-token hashes, resume BLOBs, locks, and append-only audit rows. Resume data and browser state remain local. The extension service worker owns its short-lived bearer token; the page content script never receives it. OpenClaw uses a separate environment-only backend token. Composio custom tools execute in-process and pair over loopback; no Wuzzuf credentials are sent to Composio.
+
+The current Composio 0.13.1 API is session-scoped: `experimental_createTool` definitions are grouped by `experimental_createToolkit`, then attached with `composio.sessions.create(..., { experimental: { customToolkits } })`. Composio automatically prefixes toolkit tools as `LOCAL_WUZZUF_*`; search/schema/multi-execute meta tools work with these in-process definitions, while MCP sessions do not support them.
