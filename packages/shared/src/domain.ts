@@ -106,6 +106,20 @@ export interface AuditEvent {
   detail: Record<string, unknown>;
 }
 
+export interface AgentSettings {
+  activeProfileId?: string;
+  chatModel: string;
+  answerModel: string;
+  matchingModel: string;
+  temperature: number;
+  maximumAnswerLength: number;
+  confidenceThreshold: number;
+  maximumConcurrentRuns: number;
+  defaultDryRun: boolean;
+  browserHeadless: boolean;
+  updatedAt: string;
+}
+
 export function assertNever(value: never): never {
   throw new Error(`Unexpected value: ${String(value)}`);
 }

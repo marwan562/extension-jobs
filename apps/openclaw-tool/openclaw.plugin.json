@@ -1,0 +1,19 @@
+{
+  "id": "job-automation",
+  "name": "Job Automation",
+  "description": "Resume-grounded job application control through the local OpenClaw orchestrator.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "job_automation"
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 # OpenClaw Job Automation
 
-Local-first, review-first job discovery and application preparation. The first milestone pairs a Manifest V3 side panel with an authenticated loopback orchestrator, imports a text CV into provenance-tagged facts, creates timezone-aware campaigns, discovers/normalizes/deduplicates/scores fixture jobs (or a configured Composio LinkedIn action), prepares approval-gated answers, and fills a local mock application without submission.
+Local-first, review-first job discovery and application preparation. The focused extension provides OpenClaw chat, PDF/text resume knowledge, professional profile-grounded application answers, semantic form inspection, and per-task local model controls. OpenClaw remains the orchestration brain through the bundled typed tool plugin.
 
 ## Quick start
 
@@ -25,3 +25,7 @@ For the Chrome extension, follow [the installation guide](docs/extension-install
 - Provider and OpenClaw secrets remain in the local backend.
 
 See [architecture](docs/architecture.md), [local development](docs/local-development.md), and [known limitations](docs/known-limitations.md).
+
+## OpenClaw tool
+
+The local plugin in `apps/openclaw-tool` gives OpenClaw typed profile, answer, campaign, status, and emergency-stop actions. Set the same random `OPENCLAW_JOB_TOOL_TOKEN` for the gateway and orchestrator, then follow its README. The tool cannot execute arbitrary JavaScript/selectors or submit unsupported forms.

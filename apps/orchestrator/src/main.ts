@@ -15,4 +15,4 @@ if (!extensionId && !devOrigin) throw new Error('Set EXTENSION_ID or a loopback 
 const allowedOrigin = extensionId ? `chrome-extension://${extensionId}` : devOrigin!;
 const pairingCode = env.PAIRING_CODE ?? crypto.randomUUID();
 if (!env.PAIRING_CODE) process.stderr.write(`One-time pairing code: ${pairingCode}\n`);
-createBridge(service, { allowedOrigin, pairingCode, sessionTtlMs: Number(env.SESSION_TTL_SECONDS ?? 900) * 1000 }).listen(port, '127.0.0.1', () => process.stdout.write(`Orchestrator listening on http://127.0.0.1:${port}\n`));
+createBridge(service, { allowedOrigin, pairingCode, sessionTtlMs: Number(env.SESSION_TTL_SECONDS ?? 900) * 1000, ...(env.OPENCLAW_JOB_TOOL_TOKEN ? { toolToken: env.OPENCLAW_JOB_TOOL_TOKEN } : {}) }).listen(port, '127.0.0.1', () => process.stdout.write(`Orchestrator listening on http://127.0.0.1:${port}\n`));

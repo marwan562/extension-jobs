@@ -1,5 +1,6 @@
 interface ApprovedAnswer { fieldId: string; label: string; value: string; confirmationRequired: boolean; approved?: boolean }
 chrome.runtime.onMessage.addListener((message: { type: string; answers?: ApprovedAnswer[]; dryRun?: boolean }, _sender: unknown, respond: (value: unknown) => void) => {
+  if (message.type === 'inspect-form') { const fields = [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input:not([type="hidden"]), textarea, select')].filter((el) => isVisible(el)).slice(0, 100).map((el) => ({ id: el.id || el.name, label: accessibleName(el), type: el instanceof HTMLSelectElement ? 'select' : el.type || 'text', required: el.required, options: el instanceof HTMLSelectElement ? Array.from(el.options).map((o) => o.text.trim()).filter(Boolean) : [] })).filter((field) => field.label); respond({ ok: true, url: location.href, title: document.title, fields }); return true; }
   if (message.type !== 'fill-approved') return;
   const filled: string[] = []; const skipped: string[] = [];
   for (const answer of message.answers ?? []) {
@@ -13,3 +14,4 @@ chrome.runtime.onMessage.addListener((message: { type: string; answers?: Approve
   respond({ ok: true, filled, skipped, dryRun: message.dryRun !== false });
 });
 function accessibleName(control: HTMLElement): string { const id = control.id; const label = id ? document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(id)}"]`)?.textContent : ''; return (label || control.getAttribute('aria-label') || control.getAttribute('name') || '').trim(); }
+function isVisible(element: HTMLElement): boolean { const style = getComputedStyle(element); const rect = element.getBoundingClientRect(); return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0; }

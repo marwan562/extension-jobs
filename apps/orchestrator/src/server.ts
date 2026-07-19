@@ -3,10 +3,10 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { randomUUID } from 'node:crypto';
 import { importCvText, updateProfileFact } from '../../../packages/profile-engine/src/index.ts';
 import { parseFriendlySchedule, ValidationError, asRecord, requiredString, stringArray, validateTimezone } from '../../../packages/shared/src/validation.ts';
-import type { ExecutionMode, JobCampaign } from '../../../packages/shared/src/domain.ts';
+import type { AgentSettings, ExecutionMode, JobCampaign } from '../../../packages/shared/src/domain.ts';
 import { OrchestratorService } from './service.ts';
 
-const MAX_BODY_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = 6 * 1024 * 1024;
 
 class Sessions {
   private readonly tokens = new Map<string, number>();
@@ -23,7 +23,7 @@ class Sessions {
 
 class HttpError extends Error { readonly status: number; constructor(status: number, message: string) { super(message); this.status = status; } }
 
-export interface BridgeOptions { allowedOrigin: string; pairingCode: string; sessionTtlMs?: number }
+export interface BridgeOptions { allowedOrigin: string; pairingCode: string; sessionTtlMs?: number; toolToken?: string }
 
 export function createBridge(service: OrchestratorService, options: BridgeOptions) {
   if (!/^chrome-extension:\/\/[a-p]{32}$/.test(options.allowedOrigin) && !options.allowedOrigin.startsWith('http://127.0.0.1:')) throw new Error('An exact extension or loopback development origin is required');
@@ -35,10 +35,10 @@ export function createBridge(service: OrchestratorService, options: BridgeOption
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, emergencyStop: service.emergencyStop.active });
       if (req.method === 'POST' && url.pathname === '/v1/pair') { const body = asRecord(await readJson(req)); return json(res, 200, sessions.pair(requiredString(body.code, 'code', 256))); }
-      authorize(req, sessions);
-      if (req.method === 'GET' && url.pathname === '/v1/dashboard') return json(res, 200, { campaigns: service.store.listCampaigns(), profiles: service.store.listProfiles(), timeline: service.store.timeline(), emergencyStop: service.emergencyStop.active });
+      authorize(req, sessions, options.toolToken);
+      if (req.method === 'GET' && url.pathname === '/v1/dashboard') return json(res, 200, { campaigns: service.store.listCampaigns(), profiles: service.store.listProfiles(), timeline: service.store.timeline(), agentSettings: service.settings, emergencyStop: service.emergencyStop.active });
       if (req.method === 'POST' && url.pathname === '/v1/profiles/import') {
-        const body = asRecord(await readJson(req)); const profile = importCvText(requiredString(body.name, 'name', 100), requiredString(body.sourceName, 'sourceName', 200), requiredString(body.text, 'text', 50_000)); service.saveProfile(profile); service.audit(profile.id, 'profile.imported', { sourceName: profile.cvVariants[0]!.sourceName, factCount: profile.facts.length }); return json(res, 201, profile);
+        const body = asRecord(await readJson(req)); const sourceName = requiredString(body.sourceName, 'sourceName', 200); const text = typeof body.base64 === 'string' ? await extractResumeText(sourceName, body.base64) : requiredString(body.text, 'text', 200_000); const profile = importCvText(requiredString(body.name, 'name', 100), sourceName, text); service.saveProfile(profile); const settings = { ...service.settings, activeProfileId: profile.id, updatedAt: new Date().toISOString() }; service.saveSettings(settings); service.audit(profile.id, 'profile.imported', { sourceName, factCount: profile.facts.length }); return json(res, 201, profile);
       }
       const factMatch = url.pathname.match(/^\/v1\/profiles\/([^/]+)\/facts\/([^/]+)$/);
       if (req.method === 'POST' && factMatch) { const profile = service.store.getProfile(factMatch[1]!); if (!profile) throw new HttpError(404, 'Profile not found'); const body = asRecord(await readJson(req)); const value = body.value; if (!['string', 'number', 'boolean'].includes(typeof value)) throw new ValidationError('Invalid fact value'); const updated = updateProfileFact(profile, factMatch[2]!, value as string | number | boolean); service.saveProfile(updated); service.audit(profile.id, 'profile.fact_updated', { factId: factMatch[2] }); return json(res, 200, updated); }
@@ -61,9 +61,12 @@ export function createBridge(service: OrchestratorService, options: BridgeOption
       const fillMatch = url.pathname.match(/^\/v1\/applications\/([^/]+)\/fill-result$/);
       if (req.method === 'POST' && fillMatch) { const body = asRecord(await readJson(req)); const filled = stringArray(body.filled ?? [], 'filled', 100); const skipped = stringArray(body.skipped ?? [], 'skipped', 100); service.audit(requiredString(body.correlationId, 'correlationId', 100), skipped.length ? 'application.fill_partial' : 'application.filled', { filled, skipped }, fillMatch[1]); return json(res, 200, { recorded: true }); }
       if (req.method === 'POST' && url.pathname === '/v1/chat') {
-        const body = asRecord(await readJson(req)); const text = requiredString(body.text, 'text', 8_000); res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
-        for await (const chunk of service.chat(text)) res.write(`${JSON.stringify({ type: 'chunk', text: chunk })}\n`); res.end(`${JSON.stringify({ type: 'done' })}\n`); return;
+        const body = asRecord(await readJson(req)); const text = requiredString(body.text, 'text', 8_000); const profileId = typeof body.profileId === 'string' ? body.profileId : undefined; res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
+        for await (const chunk of service.chat(text, profileId)) res.write(`${JSON.stringify({ type: 'chunk', text: chunk })}\n`); res.end(`${JSON.stringify({ type: 'done' })}\n`); return;
       }
+      if (req.method === 'GET' && url.pathname === '/v1/models') return json(res, 200, await service.discoverModels());
+      if (req.method === 'POST' && url.pathname === '/v1/agent-settings') { const body = asRecord(await readJson(req)); const current = service.settings; const settings: AgentSettings = { ...current, ...(typeof body.activeProfileId === 'string' ? { activeProfileId: body.activeProfileId } : {}), chatModel: requiredString(body.chatModel ?? current.chatModel, 'chatModel', 200), answerModel: requiredString(body.answerModel ?? current.answerModel, 'answerModel', 200), matchingModel: requiredString(body.matchingModel ?? current.matchingModel, 'matchingModel', 200), temperature: boundedNumber(body.temperature, 'temperature', 0, 2, current.temperature), maximumAnswerLength: boundedNumber(body.maximumAnswerLength, 'maximumAnswerLength', 50, 5000, current.maximumAnswerLength), confidenceThreshold: boundedNumber(body.confidenceThreshold, 'confidenceThreshold', 0, 1, current.confidenceThreshold), maximumConcurrentRuns: boundedNumber(body.maximumConcurrentRuns, 'maximumConcurrentRuns', 1, 10, current.maximumConcurrentRuns), defaultDryRun: body.defaultDryRun !== false, browserHeadless: body.browserHeadless !== false, updatedAt: new Date().toISOString() }; service.saveSettings(settings); return json(res, 200, settings); }
+      if (req.method === 'POST' && url.pathname === '/v1/answers/prepare') { const body = asRecord(await readJson(req)); const labels = stringArray(body.labels, 'labels', 100); return json(res, 200, await service.prepareQuestions(labels, typeof body.profileId === 'string' ? body.profileId : undefined)); }
       if (req.method === 'POST' && url.pathname === '/v1/emergency-stop') { service.emergencyStop.engage(); service.audit(randomUUID(), 'emergency_stop.engaged', {}); return json(res, 200, { stopped: true }); }
       if (req.method === 'POST' && url.pathname === '/v1/emergency-stop/reset') { service.emergencyStop.reset(); return json(res, 200, { stopped: false }); }
       throw new HttpError(404, 'Not found');
@@ -80,7 +83,8 @@ function applySecurityHeaders(req: IncomingMessage, res: ServerResponse, allowed
   res.setHeader('vary', 'Origin'); res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS'); res.setHeader('access-control-allow-headers', 'authorization,content-type');
   res.setHeader('x-content-type-options', 'nosniff'); res.setHeader('cache-control', 'no-store'); res.setHeader('referrer-policy', 'no-referrer');
 }
-function authorize(req: IncomingMessage, sessions: Sessions): void { const auth = req.headers.authorization; if (!auth?.startsWith('Bearer ') || !sessions.valid(auth.slice(7))) throw new HttpError(401, 'Pairing required'); }
+function authorize(req: IncomingMessage, sessions: Sessions, toolToken?: string): void { const suppliedTool = req.headers['x-openclaw-tool-token']; if (toolToken && typeof suppliedTool === 'string') { const expected = createHash('sha256').update(toolToken).digest(); const actual = createHash('sha256').update(suppliedTool).digest(); if (timingSafeEqual(expected, actual)) return; } const auth = req.headers.authorization; if (!auth?.startsWith('Bearer ') || !sessions.valid(auth.slice(7))) throw new HttpError(401, 'Pairing required'); }
 async function readJson(req: IncomingMessage): Promise<unknown> { let size = 0; const chunks: Buffer[] = []; for await (const chunk of req) { const buffer = Buffer.from(chunk); size += buffer.length; if (size > MAX_BODY_BYTES) throw new HttpError(413, 'Request too large'); chunks.push(buffer); } return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); }
 function json(res: ServerResponse, status: number, body: unknown): void { if (res.headersSent) return; const value = JSON.stringify(body); res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(value) }); res.end(value); }
 function boundedNumber(value: unknown, field: string, min: number, max: number, fallback: number): number { const number = value === undefined ? fallback : Number(value); if (!Number.isFinite(number) || number < min || number > max) throw new ValidationError(`Invalid ${field}`); return number; }
+async function extractResumeText(sourceName: string, base64: string): Promise<string> { const data = Buffer.from(base64, 'base64'); if (data.length > 4 * 1024 * 1024) throw new HttpError(413, 'Resume must be smaller than 4 MB'); if (!sourceName.toLowerCase().endsWith('.pdf')) return data.toString('utf8'); if (data.subarray(0, 4).toString() !== '%PDF') throw new ValidationError('Invalid PDF resume'); const { PDFParse } = await import('pdf-parse'); const parser = new PDFParse({ data }); try { const result = await parser.getText(); return requiredString(result.text, 'resume text', 200_000); } finally { await parser.destroy(); } }

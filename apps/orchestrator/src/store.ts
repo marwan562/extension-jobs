@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { ApplicationState, AuditEvent, CandidateProfile, Job, JobCampaign } from '../../../packages/shared/src/domain.ts';
+import type { AgentSettings, ApplicationState, AuditEvent, CandidateProfile, Job, JobCampaign } from '../../../packages/shared/src/domain.ts';
 import { assertTransition } from '../../../packages/shared/src/validation.ts';
 
 export class Store {
@@ -15,11 +15,14 @@ export class Store {
       CREATE TABLE IF NOT EXISTS applications (id TEXT PRIMARY KEY, job_id TEXT NOT NULL, state TEXT NOT NULL, submission_key TEXT UNIQUE, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL, application_id TEXT, at TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS locks (key TEXT PRIMARY KEY, acquired_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS audit_correlation_idx ON audit_events(correlation_id, at);`);
   }
   saveProfile(profile: CandidateProfile): void { this.db.prepare('INSERT INTO profiles VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at').run(profile.id, JSON.stringify(profile), profile.updatedAt); }
   getProfile(id: string): CandidateProfile | undefined { const row = this.db.prepare('SELECT data FROM profiles WHERE id=?').get(id) as { data: string } | undefined; return row ? JSON.parse(row.data) as CandidateProfile : undefined; }
   listProfiles(): CandidateProfile[] { return (this.db.prepare('SELECT data FROM profiles ORDER BY updated_at DESC').all() as Array<{ data: string }>).map((r) => JSON.parse(r.data) as CandidateProfile); }
+  saveAgentSettings(settings: AgentSettings): void { this.db.prepare('INSERT INTO settings VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET data=excluded.data').run('agents', JSON.stringify(settings)); }
+  getAgentSettings(): AgentSettings | undefined { const row = this.db.prepare('SELECT data FROM settings WHERE key=?').get('agents') as { data: string } | undefined; return row ? JSON.parse(row.data) as AgentSettings : undefined; }
   saveCampaign(campaign: JobCampaign): void { this.db.prepare('INSERT INTO campaigns VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at').run(campaign.id, JSON.stringify(campaign), campaign.updatedAt); }
   getCampaign(id: string): JobCampaign | undefined { const row = this.db.prepare('SELECT data FROM campaigns WHERE id=?').get(id) as { data: string } | undefined; return row ? JSON.parse(row.data) as JobCampaign : undefined; }
   listCampaigns(): JobCampaign[] { return (this.db.prepare('SELECT data FROM campaigns ORDER BY updated_at DESC').all() as Array<{ data: string }>).map((r) => JSON.parse(r.data) as JobCampaign); }
