@@ -1,8 +1,9 @@
 import { Type } from 'typebox';
 import { defineToolPlugin } from 'openclaw/plugin-sdk/tool-plugin';
+import { readFileSync } from 'node:fs';
 
 const baseUrl = process.env.OPENCLAW_JOB_BRIDGE_URL || 'http://127.0.0.1:18790';
-const toolToken = process.env.OPENCLAW_JOB_TOOL_TOKEN || '';
+const toolToken = process.env.OPENCLAW_JOB_TOOL_TOKEN || readLocalToken();
 
 export default defineToolPlugin({
   id: 'job-automation', name: 'Job Automation', description: 'Resume-grounded job application control through the local OpenClaw orchestrator.',
@@ -21,3 +22,4 @@ export default defineToolPlugin({
   })]
 });
 async function request(path, method = 'GET', body) { const response = await fetch(`${baseUrl}${path}`, { method, headers: { 'x-openclaw-tool-token': toolToken, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(60_000) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || `Job bridge returned ${response.status}`); return data; }
+function readLocalToken() { try { const env = readFileSync(new URL('../../.env', import.meta.url), 'utf8'); return env.match(/^OPENCLAW_JOB_TOOL_TOKEN=(.+)$/m)?.[1]?.trim() || ''; } catch { return ''; } }

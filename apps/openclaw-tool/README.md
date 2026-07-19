@@ -1,9 +1,9 @@
 # OpenClaw Job Automation Tool
 
-Start the orchestrator with the same random `OPENCLAW_JOB_TOOL_TOKEN` available to the OpenClaw gateway, then install this local plugin:
+Start the orchestrator with `OPENCLAW_JOB_TOOL_TOKEN` in the git-ignored root `.env`. A linked development install reads that token locally; packaged production installs should inject it through OpenClaw's secret environment. Then install this local plugin:
 
 ```sh
-openclaw plugins install ./apps/openclaw-tool
+openclaw plugins install --link ./apps/openclaw-tool
 openclaw plugins enable job-automation
 openclaw plugins validate --entry ./apps/openclaw-tool/index.js
 ```
