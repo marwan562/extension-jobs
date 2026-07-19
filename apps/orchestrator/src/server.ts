@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { importCvText, updateProfileFact } from '../../../packages/profile-engine/src/index.ts';
 import { parseFriendlySchedule, ValidationError, asRecord, requiredString, stringArray, validateTimezone } from '../../../packages/shared/src/validation.ts';
 import type { AgentSettings, ExecutionMode, JobCampaign } from '../../../packages/shared/src/domain.ts';
+import { WuzzufToolError, wuzzufToolActions, type WuzzufToolAction } from '../../../packages/shared/src/wuzzuf.ts';
 import { OrchestratorService } from './service.ts';
 
 const MAX_BODY_BYTES = 6 * 1024 * 1024;
@@ -28,14 +29,20 @@ export interface BridgeOptions { allowedOrigin: string; pairingCode: string; ses
 export function createBridge(service: OrchestratorService, options: BridgeOptions) {
   if (!/^chrome-extension:\/\/[a-p]{32}$/.test(options.allowedOrigin) && !options.allowedOrigin.startsWith('http://127.0.0.1:')) throw new Error('An exact extension or loopback development origin is required');
   const sessions = new Sessions(options.pairingCode, options.sessionTtlMs ?? 15 * 60_000);
-  return createServer(async (req, res) => {
+  const limiter = new RateLimiter(120, 60_000);
+  const server = createServer(async (req, res) => {
     try {
+      if (!limiter.allow(req.socket.remoteAddress ?? 'loopback')) throw new HttpError(429, 'Rate limit exceeded');
       applySecurityHeaders(req, res, options.allowedOrigin);
       if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, emergencyStop: service.emergencyStop.active });
       if (req.method === 'POST' && url.pathname === '/v1/pair') { const body = asRecord(await readJson(req)); return json(res, 200, sessions.pair(requiredString(body.code, 'code', 256))); }
       authorize(req, sessions, options.toolToken);
+      const wuzzufMatch = url.pathname.match(/^\/v1\/wuzzuf\/tools\/([A-Z_]+)$/);
+      if (req.method === 'POST' && wuzzufMatch) {
+        const action = wuzzufMatch[1] as WuzzufToolAction; if (!wuzzufToolActions.includes(action)) throw new HttpError(404, 'Unknown Wuzzuf action'); const body = asRecord(await readJson(req)); const data = await dispatchWuzzufAction(service, action, body); return json(res, 200, { ok: true, data });
+      }
       if (req.method === 'GET' && url.pathname === '/v1/dashboard') return json(res, 200, { campaigns: service.store.listCampaigns(), profiles: service.store.listProfiles(), timeline: service.store.timeline(), agentSettings: service.settings, emergencyStop: service.emergencyStop.active });
       if (req.method === 'POST' && url.pathname === '/v1/profiles/import') {
         const body = asRecord(await readJson(req)); const sourceName = requiredString(body.sourceName, 'sourceName', 200); const text = typeof body.base64 === 'string' ? await extractResumeText(sourceName, body.base64) : requiredString(body.text, 'text', 200_000); const profile = importCvText(requiredString(body.name, 'name', 100), sourceName, text); service.saveProfile(profile); const settings = { ...service.settings, activeProfileId: profile.id, updatedAt: new Date().toISOString() }; service.saveSettings(settings); service.audit(profile.id, 'profile.imported', { sourceName, factCount: profile.facts.length }); return json(res, 201, profile);
@@ -71,10 +78,36 @@ export function createBridge(service: OrchestratorService, options: BridgeOption
       if (req.method === 'POST' && url.pathname === '/v1/emergency-stop/reset') { service.emergencyStop.reset(); return json(res, 200, { stopped: false }); }
       throw new HttpError(404, 'Not found');
     } catch (error) {
-      const status = error instanceof HttpError ? error.status : error instanceof ValidationError || error instanceof SyntaxError ? 400 : 500;
+      const status = error instanceof HttpError ? error.status : error instanceof WuzzufToolError ? error.status : error instanceof ValidationError || error instanceof SyntaxError ? 400 : 500;
+      if (error instanceof WuzzufToolError) return json(res, status, { ok: false, error: { code: error.code, message: error.message, retryable: error.retryable, ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) } });
       json(res, status, { error: status === 500 ? 'Internal server error' : error instanceof Error ? error.message : 'Request failed' });
     }
   });
+  server.requestTimeout = 65_000; server.headersTimeout = 10_000; return server;
+}
+
+class RateLimiter {
+  private readonly buckets = new Map<string, { count: number; resetAt: number }>();
+  constructor(private readonly limit: number, private readonly windowMs: number) {}
+  allow(key: string): boolean { const now = Date.now(); const current = this.buckets.get(key); if (!current || current.resetAt <= now) { this.buckets.set(key, { count: 1, resetAt: now + this.windowMs }); return true; } current.count += 1; return current.count <= this.limit; }
+}
+
+async function dispatchWuzzufAction(service: OrchestratorService, action: WuzzufToolAction, body: Record<string, unknown>): Promise<unknown> {
+  const applicationId = () => requiredString(body.applicationId, 'applicationId', 100); const jobRef = () => ({ ...(typeof body.jobId === 'string' ? { jobId: requiredString(body.jobId, 'jobId', 100) } : {}), ...(typeof body.url === 'string' ? { url: requiredString(body.url, 'url', 2_000) } : {}), ...(typeof body.profileId === 'string' ? { profileId: requiredString(body.profileId, 'profileId', 100) } : {}) });
+  switch (action) {
+    case 'WUZZUF_SEARCH_JOBS': return service.wuzzuf.search({ queries: stringArray(body.queries, 'queries', 10), locations: stringArray(body.locations, 'locations', 10), ...(typeof body.remote === 'boolean' ? { remote: body.remote } : {}), ...(typeof body.experienceLevel === 'string' ? { experienceLevel: requiredString(body.experienceLevel, 'experienceLevel', 100) } : {}), ...(body.employmentTypes !== undefined ? { employmentTypes: stringArray(body.employmentTypes, 'employmentTypes', 10) } : {}), ...(body.limit !== undefined ? { limit: boundedNumber(body.limit, 'limit', 1, 100, 25) } : {}) });
+    case 'WUZZUF_GET_JOB_DETAILS': return service.wuzzuf.details(requiredString(body.url, 'url', 2_000));
+    case 'WUZZUF_SCORE_JOB': return service.wuzzuf.score(jobRef());
+    case 'WUZZUF_PREPARE_APPLICATION': return service.wuzzuf.prepare({ ...jobRef(), dryRun: body.dryRun !== false });
+    case 'WUZZUF_FILL_APPLICATION': return service.wuzzuf.fill({ applicationId: applicationId(), ...(Array.isArray(body.approvedAnswerOverrides) ? { approvedAnswerOverrides: body.approvedAnswerOverrides.map((value) => { const item = asRecord(value); return { ...(typeof item.fieldId === 'string' ? { fieldId: requiredString(item.fieldId, 'fieldId', 200) } : {}), ...(typeof item.label === 'string' ? { label: requiredString(item.label, 'label', 500) } : {}), value: requiredString(item.value, 'value', 5_000), approved: true as const }; }) } : {}), dryRun: body.dryRun !== false });
+    case 'WUZZUF_GET_APPLICATION_REVIEW': return service.wuzzuf.review(applicationId());
+    case 'WUZZUF_SUBMIT_APPLICATION': return service.wuzzuf.submit({ applicationId: applicationId(), approvalToken: requiredString(body.approvalToken, 'approvalToken', 200) });
+    case 'WUZZUF_GET_APPLICATION_STATUS': return service.wuzzuf.status(applicationId());
+    case 'WUZZUF_CANCEL_APPLICATION': return service.wuzzuf.cancel(applicationId());
+    case 'WUZZUF_GET_AUTH_STATUS': return service.wuzzuf.authStatus();
+    case 'WUZZUF_OPEN_LOGIN': return service.wuzzuf.openLogin();
+    case 'WUZZUF_CREATE_APPROVAL_TOKEN': return service.wuzzuf.createApprovalToken(applicationId(), boundedNumber(body.ttlSeconds, 'ttlSeconds', 30, 300, 120));
+  }
 }
 
 function applySecurityHeaders(req: IncomingMessage, res: ServerResponse, allowedOrigin: string): void {
