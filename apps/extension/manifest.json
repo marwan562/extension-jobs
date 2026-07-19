@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "OpenClaw Job Control Center",
   "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAueaHo6Tc6QqpsqNq26IQ/3UpgyNJOFhvn4L/codXlGPYDem9kBI0rhzElFMcV/hGkws08D6Yinxbi+AxiyjPZDPT/wOAwLQf6P6467ub7eFmMv6rOrNnDHwZJvZog/EFFbjzV1eoRcsTg0rowr43efFq5ieol0FK9y3pKhs2D37j2n87F3HI5R/mmLX+qkG0MeaEYlkAxteBqgszCPm5V2BVa6QLmItzw9PoQ/lFbRWUrkv0CcyhP1UQpuApPk+e0wwIELn4uJ42P7x7eeWAQBljlj7KWvn0WIIT6YzojOKtiJtRRumOoUaqR9adsI6SboIX36eZSR0vvYftl1r5MQIDAQAB",
   "description": "Local-first job research and application review control center.",
   "permissions": ["sidePanel", "storage", "activeTab", "scripting"],
   "host_permissions": ["http://127.0.0.1:18790/*", "<all_urls>"],
