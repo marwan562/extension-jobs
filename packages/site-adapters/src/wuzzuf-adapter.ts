@@ -67,7 +67,7 @@ export class WuzzufAdapter implements JobSiteAdapter {
   async openLogin(): Promise<{ opened: true; message: string }> {
     await this.closePersistentContext();
     const page = await this.newPage(false);
-    await this.goto(page, new URL('/login', this.baseUrl).href);
+    await page.goto(new URL('/login', this.baseUrl).href, { waitUntil: 'domcontentloaded', timeout: this.timeoutMs });
     return { opened: true, message: 'Complete login in the Wuzzuf browser window, then close it or check status again.' };
   }
 
