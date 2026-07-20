@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AgentSettings, ApplicationState, AuditEvent, CandidateProfile, Job, JobCampaign } from '../../../packages/shared/src/domain.ts';
-import type { ApprovalTokenRecord, PreparedApplicationRecord } from '../../../packages/shared/src/wuzzuf.ts';
+import type { ApprovalRequestRecord, PreparedApplicationRecord, WuzzufConnection } from '../../../packages/shared/src/wuzzuf.ts';
 import { assertTransition } from '../../../packages/shared/src/validation.ts';
 
 export class Store {
@@ -15,10 +15,12 @@ export class Store {
       CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, fingerprint TEXT UNIQUE NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS applications (id TEXT PRIMARY KEY, job_id TEXT NOT NULL, state TEXT NOT NULL, submission_key TEXT UNIQUE, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL, application_id TEXT, at TEXT NOT NULL, data TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS approval_tokens (id TEXT PRIMARY KEY, application_id TEXT NOT NULL, token_hash TEXT UNIQUE NOT NULL, expires_at TEXT NOT NULL, used_at TEXT, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS resume_files (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, source_name TEXT NOT NULL, content BLOB NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS locks (key TEXT PRIMARY KEY, acquired_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS wuzzuf_connections (user_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS approval_requests (id TEXT PRIMARY KEY, application_id TEXT NOT NULL, binding_hash TEXT NOT NULL, status TEXT NOT NULL, expires_at TEXT NOT NULL, data TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS operation_idempotency (operation TEXT NOT NULL, key TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL, response TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(operation, key));
       CREATE INDEX IF NOT EXISTS audit_correlation_idx ON audit_events(correlation_id, at);`);
   }
   saveProfile(profile: CandidateProfile): void { this.db.prepare('INSERT INTO profiles VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at').run(profile.id, JSON.stringify(profile), profile.updatedAt); }
@@ -42,12 +44,15 @@ export class Store {
   getPreparedApplicationByJob(jobId: string): PreparedApplicationRecord | undefined { const row = this.db.prepare('SELECT data, state FROM applications WHERE job_id=? ORDER BY rowid DESC LIMIT 1').get(jobId) as { data: string; state: ApplicationState } | undefined; if (!row) return undefined; return { ...(JSON.parse(row.data) as PreparedApplicationRecord), state: row.state }; }
   transition(id: string, to: ApplicationState): void { const row = this.db.prepare('SELECT state FROM applications WHERE id=?').get(id) as { state: ApplicationState } | undefined; if (!row) throw new Error('Application not found'); assertTransition(row.state, to); this.db.prepare('UPDATE applications SET state=? WHERE id=?').run(to, id); }
   reserveSubmission(id: string, key: string): boolean { try { const result = this.db.prepare('UPDATE applications SET submission_key=? WHERE id=? AND submission_key IS NULL').run(key, id); return result.changes === 1; } catch (e) { if (String(e).includes('UNIQUE')) return false; throw e; } }
-  saveApprovalToken(record: ApprovalTokenRecord): void { this.db.prepare('INSERT INTO approval_tokens VALUES (?, ?, ?, ?, NULL, ?)').run(record.id, record.applicationId, record.tokenHash, record.expiresAt, JSON.stringify(record)); }
-  consumeApprovalToken(applicationId: string, tokenHash: string, now: string): 'valid' | 'missing' | 'expired' | 'used' | 'mismatched' {
-    const row = this.db.prepare('SELECT id, application_id, expires_at, used_at FROM approval_tokens WHERE token_hash=?').get(tokenHash) as { id: string; application_id: string; expires_at: string; used_at: string | null } | undefined;
-    if (!row) return 'missing'; if (row.application_id !== applicationId) return 'mismatched'; if (row.used_at) return 'used'; if (Date.parse(row.expires_at) <= Date.parse(now)) return 'expired';
-    const result = this.db.prepare('UPDATE approval_tokens SET used_at=? WHERE id=? AND used_at IS NULL').run(now, row.id); return result.changes === 1 ? 'valid' : 'used';
-  }
+  saveWuzzufConnection(record: WuzzufConnection): void { this.db.prepare('INSERT INTO wuzzuf_connections VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at').run(record.userId, JSON.stringify(record), record.updatedAt); }
+  getWuzzufConnection(userId: string): WuzzufConnection | undefined { const row = this.db.prepare('SELECT data FROM wuzzuf_connections WHERE user_id=?').get(userId) as { data: string } | undefined; return row ? JSON.parse(row.data) as WuzzufConnection : undefined; }
+  saveApprovalRequest(record: ApprovalRequestRecord): void { this.db.prepare('INSERT INTO approval_requests VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET binding_hash=excluded.binding_hash, status=excluded.status, expires_at=excluded.expires_at, data=excluded.data').run(record.id, record.applicationId, record.bindingHash, record.status, record.expiresAt, JSON.stringify(record)); }
+  getApprovalRequest(id: string): ApprovalRequestRecord | undefined { const row = this.db.prepare('SELECT data, status FROM approval_requests WHERE id=?').get(id) as { data: string; status: ApprovalRequestRecord['status'] } | undefined; return row ? { ...(JSON.parse(row.data) as ApprovalRequestRecord), status: row.status } : undefined; }
+  listApprovalRequests(status?: ApprovalRequestRecord['status']): ApprovalRequestRecord[] { const rows = status ? this.db.prepare('SELECT data, status FROM approval_requests WHERE status=? ORDER BY rowid DESC').all(status) : this.db.prepare('SELECT data, status FROM approval_requests ORDER BY rowid DESC').all(); return (rows as Array<{ data: string; status: ApprovalRequestRecord['status'] }>).map((row) => ({ ...(JSON.parse(row.data) as ApprovalRequestRecord), status: row.status })); }
+  invalidateApprovalRequests(applicationId: string, exceptBinding?: string): void { const rows = this.db.prepare("SELECT data FROM approval_requests WHERE application_id=? AND status IN ('pending','approved')").all(applicationId) as Array<{ data: string }>; for (const row of rows) { const record = JSON.parse(row.data) as ApprovalRequestRecord; if (exceptBinding && record.bindingHash === exceptBinding) continue; record.status = 'invalidated'; record.updatedAt = new Date().toISOString(); this.saveApprovalRequest(record); } }
+  beginIdempotent(operation: string, key: string, requestHash: string): { status: string; response?: unknown } | 'started' | 'conflict' { const row = this.db.prepare('SELECT request_hash, status, response FROM operation_idempotency WHERE operation=? AND key=?').get(operation, key) as { request_hash: string; status: string; response: string | null } | undefined; if (row) return row.request_hash !== requestHash ? 'conflict' : { status: row.status, ...(row.response ? { response: JSON.parse(row.response) as unknown } : {}) }; this.db.prepare('INSERT INTO operation_idempotency VALUES (?, ?, ?, ?, NULL, ?)').run(operation, key, requestHash, 'running', new Date().toISOString()); return 'started'; }
+  finishIdempotent(operation: string, key: string, status: 'succeeded' | 'failed' | 'uncertain', response: unknown): void { this.db.prepare('UPDATE operation_idempotency SET status=?, response=?, updated_at=? WHERE operation=? AND key=?').run(status, JSON.stringify(response), new Date().toISOString(), operation, key); }
+  clearIdempotent(operation: string, key: string): void { this.db.prepare('DELETE FROM operation_idempotency WHERE operation=? AND key=?').run(operation, key); }
   audit(event: AuditEvent): void { this.db.prepare('INSERT INTO audit_events VALUES (?, ?, ?, ?, ?)').run(event.id, event.correlationId, event.applicationId ?? null, event.at, JSON.stringify(event)); }
   timeline(correlationId?: string): AuditEvent[] { const rows = correlationId ? this.db.prepare('SELECT data FROM audit_events WHERE correlation_id=? ORDER BY at').all(correlationId) : this.db.prepare('SELECT data FROM audit_events ORDER BY at DESC LIMIT 200').all(); return (rows as Array<{ data: string }>).map((r) => JSON.parse(r.data) as AuditEvent); }
   applicationTimeline(applicationId: string): AuditEvent[] { return (this.db.prepare('SELECT data FROM audit_events WHERE application_id=? ORDER BY at').all(applicationId) as Array<{ data: string }>).map((row) => JSON.parse(row.data) as AuditEvent); }

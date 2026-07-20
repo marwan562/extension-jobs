@@ -9,7 +9,7 @@
 7. Import a resume, review its extracted facts, and explicitly enable **Approved resume**.
 8. Open the Wuzzuf tab, choose **Open Wuzzuf login**, and sign in manually in the new tab inside the connected Chrome window. Repeated clicks reuse the managed login tab. The extension never receives cookies, profile data, or credentials.
 
-The Wuzzuf tab shows authentication, source search results, score/preparation, review state, filled/skipped fields, validation errors, dry-run state, cancel, emergency stop, and human approval. To submit, first turn off the default dry-run setting, prepare and fill again, resolve every blocker, then confirm **Generate approval**. The one-use token expires within two minutes. A second confirmation is required before submission.
+The Wuzzuf tab shows authentication, source search results, score/preparation, review state, filled/skipped fields, validation errors, dry-run state, cancel, emergency stop, and human approval. To submit, first turn off the default dry-run setting, prepare and fill again, resolve every blocker, then choose **Request approval** and confirm the displayed employer, job, resume, and final answers. Agent-created requests appear under **Review pending approval**. Approval stays server-side, expires within two minutes, is invalidated by review changes, and is consumed by one submission. A second confirmation is required before the submit call.
 
 Troubleshooting:
 

@@ -1,0 +1,4 @@
+import test from 'node:test'; import assert from 'node:assert/strict'; import { readFile } from 'node:fs/promises';
+import { runtimeRegisteredToolNames } from '../apps/openclaw-wuzzuf/src/index.ts';
+
+test('OpenClaw manifest contracts exactly match individually registered runtime tools', async () => { const manifest = JSON.parse(await readFile('apps/openclaw-wuzzuf/openclaw.plugin.json', 'utf8')) as { configSchema: { properties: Record<string, unknown>; required: string[] }; contracts: { tools: string[] } }; assert.deepEqual([...manifest.contracts.tools].sort(), [...runtimeRegisteredToolNames].sort()); assert.deepEqual(Object.keys(manifest.configSchema.properties).sort(), ['bridgeUrl', 'timeoutMs', 'toolToken']); assert.deepEqual(manifest.configSchema.required, ['toolToken']); assert.equal(manifest.contracts.tools.includes('job_automation'), false); });

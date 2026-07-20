@@ -21,6 +21,8 @@ async function route(message: Message, _sender: unknown): Promise<unknown> {
     return chrome.tabs.sendMessage(tab.id, { type: 'fill-approved', answers: message.answers, dryRun: message.dryRun !== false });
   }
   if (message.type === 'wuzzuf') return api(`/v1/wuzzuf/tools/${encodeURIComponent(String(message.action))}`, 'POST', message.body ?? {});
+  if (message.type === 'wuzzufPendingApprovals') return api('/v1/wuzzuf/approval-requests', 'GET');
+  if (message.type === 'wuzzufApprovalDecision') return api(`/v1/wuzzuf/approval-requests/${encodeURIComponent(String(message.approvalRequestId))}/decision`, 'POST', { approved: message.approved === true });
   const routes: Record<string, { path: string; method?: string; body?: unknown }> = {
     dashboard: { path: '/v1/dashboard' }, importProfile: { path: '/v1/profiles/import', method: 'POST', body: message.body },
     createCampaign: { path: '/v1/campaigns', method: 'POST', body: message.body }, runCampaign: { path: `/v1/campaigns/${encodeURIComponent(String(message.id))}/run`, method: 'POST' }, pauseCampaign: { path: `/v1/campaigns/${encodeURIComponent(String(message.id))}/pause`, method: 'POST' }, resumeCampaign: { path: `/v1/campaigns/${encodeURIComponent(String(message.id))}/resume`, method: 'POST' },

@@ -1,4 +1,5 @@
 import type { FieldAnswer, Job, RawJob } from '../../shared/src/domain.ts';
+import { ChromeCdpManager, type BrowserConnectionManager } from './chrome-cdp-manager.ts';
 export { WuzzufAdapter, WuzzufJobSource, type WuzzufAdapterOptions } from './wuzzuf-adapter.ts';
 export { ChromeCdpManager, chromeConnectionMessage, type BrowserConnectionManager, type ChromeCdpManagerOptions } from './chrome-cdp-manager.ts';
 export { normalizeWuzzufUrl, sourceIdFromWuzzufUrl, parseWuzzufSearchHtml, parseWuzzufJobHtml, detectWuzzufPageState } from './wuzzuf-parser.ts';
@@ -49,22 +50,15 @@ export class ComposioLinkedInSource implements JobSource {
 
 export class IndeedJobSource implements JobSource {
   id = 'indeed';
+  private readonly browserManager: BrowserConnectionManager;
+  constructor(browserManager: BrowserConnectionManager = new ChromeCdpManager()) { this.browserManager = browserManager; }
   async discover(criteria: { queries: string[]; locations: string[] }): Promise<RawJob[]> {
-    const { chromium } = await import('playwright');
     const query = criteria.queries[0] ?? 'Frontend';
     const location = criteria.locations[0] ?? 'Egypt';
     console.log(`[IndeedJobSource] Discovering: query="${query}", location="${location}"`);
-    const browser = await chromium.launch({
-      headless: true,
-      args: ['--disable-blink-features=AutomationControlled']
-    });
+    const url = `https://www.indeed.com/jobs?q=${encodeURIComponent(query)}&l=${encodeURIComponent(location)}`;
+    const page = await this.browserManager.openTab(url);
     try {
-      const context = await browser.newContext({
-        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-      });
-      const page = await context.newPage();
-      const url = `https://www.indeed.com/jobs?q=${encodeURIComponent(query)}&l=${encodeURIComponent(location)}`;
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForSelector('.job_seen_beacon', { timeout: 15000 }).catch(() => {});
       const jobs = await page.evaluate((loc) => {
         const cards = document.querySelectorAll('.job_seen_beacon');
@@ -100,7 +94,7 @@ export class IndeedJobSource implements JobSource {
       console.log(`[IndeedJobSource] Found ${jobs.length} jobs`);
       return jobs;
     } finally {
-      await browser.close();
+      await page.close().catch(() => undefined);
     }
   }
 }
@@ -124,13 +118,14 @@ export class MultiJobSource implements JobSource {
 
 export class IndeedAdapter implements JobSiteAdapter {
   id = 'indeed';
-  private browser: any | undefined;
+  private readonly browserManager: BrowserConnectionManager;
   private readonly pages = new Map<string, any>();
+  constructor(browserManager: BrowserConnectionManager = new ChromeCdpManager()) { this.browserManager = browserManager; }
 
   matches(url: URL): boolean { return url.hostname.includes('indeed.com'); }
   async authenticate(): Promise<{ status: 'authenticated' }> { return { status: 'authenticated' }; }
   async discover(criteria: { queries: string[]; locations: string[] }): Promise<RawJob[]> {
-    return new IndeedJobSource().discover(criteria);
+    return new IndeedJobSource(this.browserManager).discover(criteria);
   }
   async readJob(url: URL): Promise<Job> {
     const { normalizeJob } = await import('../../shared/src/jobs.ts');
@@ -148,18 +143,7 @@ export class IndeedAdapter implements JobSiteAdapter {
   }
   async startApplication(job: Job, context: AdapterContext): Promise<{ id: string; url: string }> {
     context.signal.throwIfAborted();
-    const { chromium } = await import('playwright');
-    if (!this.browser) {
-      this.browser = await chromium.launch({
-        headless: true,
-        args: ['--disable-blink-features=AutomationControlled']
-      });
-    }
-    const browserContext = await this.browser.newContext({
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    });
-    const page = await browserContext.newPage();
-    await page.goto(job.url);
+    const page = await this.browserManager.openTab(job.url);
     const id = crypto.randomUUID();
     this.pages.set(id, page);
     return { id, url: job.url };
@@ -203,14 +187,15 @@ export class IndeedAdapter implements JobSiteAdapter {
     const invalid = await page.locator('form :invalid').count();
     return { valid: invalid === 0, errors: invalid ? [`${invalid} invalid fields`] : [] };
   }
-  async close(): Promise<void> { await this.browser?.close(); this.pages.clear(); this.browser = undefined; }
+  async close(): Promise<void> { await Promise.all([...this.pages.values()].map((page) => page.close().catch(() => undefined))); this.pages.clear(); await this.browserManager.disconnect(); }
   private page(id: string): any { const page = this.pages.get(id); if (!page) throw new Error('Application session not found'); return page; }
 }
 
 export class LinkedInAdapter implements JobSiteAdapter {
   id = 'linkedin';
-  private browser: any | undefined;
+  private readonly browserManager: BrowserConnectionManager;
   private readonly pages = new Map<string, any>();
+  constructor(browserManager: BrowserConnectionManager = new ChromeCdpManager()) { this.browserManager = browserManager; }
 
   matches(url: URL): boolean { return url.hostname.includes('linkedin.com'); }
   async authenticate(): Promise<{ status: 'authenticated' }> { return { status: 'authenticated' }; }
@@ -239,18 +224,7 @@ export class LinkedInAdapter implements JobSiteAdapter {
   }
   async startApplication(job: Job, context: AdapterContext): Promise<{ id: string; url: string }> {
     context.signal.throwIfAborted();
-    const { chromium } = await import('playwright');
-    if (!this.browser) {
-      this.browser = await chromium.launch({
-        headless: true,
-        args: ['--disable-blink-features=AutomationControlled']
-      });
-    }
-    const browserContext = await this.browser.newContext({
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    });
-    const page = await browserContext.newPage();
-    await page.goto(job.url);
+    const page = await this.browserManager.openTab(job.url);
     const id = crypto.randomUUID();
     this.pages.set(id, page);
     return { id, url: job.url };
@@ -294,6 +268,6 @@ export class LinkedInAdapter implements JobSiteAdapter {
     const invalid = await page.locator('form :invalid').count();
     return { valid: invalid === 0, errors: invalid ? [`${invalid} invalid fields`] : [] };
   }
-  async close(): Promise<void> { await this.browser?.close(); this.pages.clear(); this.browser = undefined; }
+  async close(): Promise<void> { await Promise.all([...this.pages.values()].map((page) => page.close().catch(() => undefined))); this.pages.clear(); await this.browserManager.disconnect(); }
   private page(id: string): any { const page = this.pages.get(id); if (!page) throw new Error('Application session not found'); return page; }
 }

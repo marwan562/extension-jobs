@@ -6,4 +6,4 @@ Pairing sends a one-time code in a POST body over loopback. The bridge compares 
 
 Native Messaging is the target production transport; the provider and domain layers do not depend on HTTP.
 
-The OpenClaw tool plugin uses a different secret, `OPENCLAW_JOB_TOOL_TOKEN`, supplied only to the gateway and orchestrator. It does not reuse the extension pairing session. Install the local plugin from `apps/openclaw-tool` and restart the gateway after validation.
+The OpenClaw tool plugin uses a different secret, `OPENCLAW_JOB_TOOL_TOKEN`, supplied to the orchestrator and as `plugins.entries.job-automation.config.toolToken`. It does not reuse the extension pairing session and cannot approve submission requests. Build and install the local plugin from `apps/openclaw-wuzzuf`, then restart the gateway after validation.

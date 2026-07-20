@@ -11,5 +11,7 @@
 - Resume parsing is deterministic and limited to PDF/text/Markdown contact, links, and a skills line. Resume approval is explicit. Uploaded bytes remain in the local SQLite database.
 - Only verified high-confidence non-sensitive values fill automatically. Salary, sponsorship, work authorization, legal, demographic, disability, clearance, relocation, and file questions remain blocked for human review.
 - Composio custom toolkits run in the TypeScript process and are not supported through Composio MCP sessions. The SDK is experimental and its prefix/config API may change.
+- The Composio host must remain running because custom Wuzzuf execution is in-process. Its persisted session ID can become stale; startup recreates it, but an execution failure is returned without automatic retry to avoid duplicating writes.
+- Wuzzuf connection state is a local logical record for one configured user. Disconnecting does not log out of Wuzzuf, delete Chrome data, or close personal Chrome; it only releases application-managed automation state when no application is active.
 - Live Wuzzuf submission is deliberately untested. Automated coverage uses the loopback mock site; production use should begin in dry-run.
 - Native Messaging and OS credential-store integration remain future hardening; current transport is loopback with exact-origin CORS, pairing, short sessions, rate limits, and timeouts.

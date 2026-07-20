@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Page, Locator } from 'playwright';
+import type { Page } from 'playwright';
 import type { FieldAnswer, Job, RawJob } from '../../shared/src/domain.ts';
 import { normalizeJob } from '../../shared/src/jobs.ts';
 import { WuzzufToolError, type WuzzufSearchInput } from '../../shared/src/wuzzuf.ts';
@@ -251,12 +251,14 @@ export class WuzzufAdapter implements JobSiteAdapter {
 
   async submit(session: { id: string }, context: AdapterContext): Promise<{ submitted: boolean; confirmation?: string }> {
     context.signal.throwIfAborted(); if (context.dryRun) throw new WuzzufToolError('WUZZUF_DRY_RUN_BLOCKED', 'Submission is disabled in dry-run mode', { status: 409 }); const page = this.page(session.id); const validation = await this.validate(session); if (!validation.valid) throw new WuzzufToolError('WUZZUF_VALIDATION_FAILED', 'Application form is not valid', { status: 409, diagnostics: { errors: validation.errors } });
-    const button = await firstExisting(page, wuzzufSelectors.submitButton); if (!button) throw new WuzzufToolError('WUZZUF_UNSUPPORTED_LAYOUT', 'Submit button was not found', { retryable: true }); await button.click(); await page.waitForLoadState('domcontentloaded', { timeout: this.timeoutMs }).catch(() => undefined); await this.assertSafePage(page); const confirmation = clean(await page.locator('[role="status"], [data-testid="application-success"], main h1').first().textContent() ?? ''); return { submitted: true, ...(confirmation ? { confirmation } : {}) };
+    const button = await firstExisting(page, wuzzufSelectors.submitButton); if (!button) throw new WuzzufToolError('WUZZUF_UNSUPPORTED_LAYOUT', 'Submit button was not found', { retryable: true }); await button.click(); await page.waitForLoadState('domcontentloaded', { timeout: this.timeoutMs }).catch(() => undefined); await this.assertSafePage(page); const success = page.locator('[role="status"], [data-testid="application-success"], main h1').first(); const confirmation = await success.count() ? clean(await success.textContent() ?? '') : ''; if (!confirmation && page.url().includes('/job-questions/')) throw new WuzzufToolError('WUZZUF_SUBMISSION_UNCONFIRMED', 'Wuzzuf kept the application form open without a success confirmation', { retryable: true }); return { submitted: true, ...(confirmation ? { confirmation } : {}) };
   }
 
   async screenshot(sessionId: string, label: string): Promise<string> { const page = this.page(sessionId); await mkdir(this.screenshotDir, { recursive: true }); const filename = `${sessionId}-${label.replace(/[^a-z0-9-]/gi, '-')}-${Date.now()}.png`; const path = resolve(this.screenshotDir, filename); await page.screenshot({ path, fullPage: true }); return filename; }
   async cancel(sessionId: string): Promise<void> { const item = this.applications.get(sessionId); if (!item) return; this.applications.delete(sessionId); await item.page.close().catch(() => undefined); }
   async close(): Promise<void> { await Promise.all([...this.applications.keys()].map((id) => this.cancel(id))); this.loginPage = undefined; this.manualVerificationPage = undefined; await this.browserManager.disconnect(); }
+  hasActiveApplications(): boolean { return this.applications.size > 0; }
+  async disconnect(): Promise<void> { if (this.hasActiveApplications()) throw new WuzzufToolError('WUZZUF_ACTIVE_APPLICATIONS', 'Cancel active Wuzzuf applications before disconnecting.', { status: 409, actionRequired: 'Cancel the active applications, then retry disconnect.' }); this.loginPage = undefined; this.manualVerificationPage = undefined; await this.browserManager.disconnect(); }
 
   browserStatus() { return { status: this.browserManager.status() }; }
   private async openOrReuseLogin(): Promise<{ opened: true; reused: boolean; status: 'login_opened' | 'manual_verification_required'; message: string }> {
@@ -299,7 +301,7 @@ export class WuzzufAdapter implements JobSiteAdapter {
   private async withDiagnostics(error: unknown, page: Page, operation: string): Promise<Error> { const safeError = this.browserError(error, page); if (safeError instanceof WuzzufToolError && safeError.diagnostics) return safeError; let screenshot: string | undefined; try { if (!page.isClosed()) { await mkdir(this.screenshotDir, { recursive: true }); screenshot = `${operation}-${Date.now()}.png`; await page.screenshot({ path: resolve(this.screenshotDir, screenshot), fullPage: true }); } } catch { /* diagnostics must not mask the original error */ } if (safeError instanceof WuzzufToolError) return new WuzzufToolError(safeError.code, safeError.message, { status: safeError.status, retryable: safeError.retryable, diagnostics: { ...(safeError.diagnostics ?? {}), operation, ...(screenshot ? { screenshot } : {}) }, cause: safeError.cause }); return new WuzzufToolError('WUZZUF_BROWSER_ERROR', 'The Wuzzuf browser operation failed. Check the open Chrome tab and retry.', { status: 502, retryable: true, diagnostics: { operation, ...(screenshot ? { screenshot } : {}) }, cause: safeError }); }
 }
 
-async function firstExisting(root: Page | Locator, selectors: readonly string[]) {
+async function firstExisting(root: Page, selectors: readonly string[]) {
   for (const selector of selectors) {
     const locator = root.locator(selector);
     const count = await locator.count();

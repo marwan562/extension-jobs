@@ -1,0 +1,57 @@
+{
+  "id": "job-automation",
+  "name": "Job Automation",
+  "description": "Local resume-grounded job tools with review-first Wuzzuf application control.",
+  "version": "0.1.0",
+  "configSchema": {
+    "type": "object",
+    "required": [
+      "toolToken"
+    ],
+    "properties": {
+      "bridgeUrl": {
+        "type": "string",
+        "default": "http://127.0.0.1:18790"
+      },
+      "toolToken": {
+        "type": "string",
+        "minLength": 32,
+        "description": "Authentication token shared with the local orchestrator"
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 300000,
+        "default": 60000
+      }
+    },
+    "additionalProperties": false
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "wuzzuf_create_connection",
+      "wuzzuf_open_login",
+      "wuzzuf_get_auth_status",
+      "wuzzuf_verify_connection",
+      "wuzzuf_disconnect",
+      "wuzzuf_search_jobs",
+      "wuzzuf_get_job_details",
+      "wuzzuf_score_job",
+      "wuzzuf_prepare_application",
+      "wuzzuf_fill_application",
+      "wuzzuf_get_application_review",
+      "wuzzuf_request_submission_approval",
+      "wuzzuf_submit_application",
+      "wuzzuf_get_application_status",
+      "wuzzuf_cancel_application",
+      "job_profile_context",
+      "job_prepare_answers",
+      "job_get_status",
+      "job_run_campaign",
+      "job_emergency_stop"
+    ]
+  }
+}

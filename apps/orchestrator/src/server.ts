@@ -38,6 +38,9 @@ export function createBridge(service: OrchestratorService, options: BridgeOption
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, emergencyStop: service.emergencyStop.active, chrome: service.wuzzuf.browserStatus() });
       if (req.method === 'POST' && url.pathname === '/v1/pair') { const body = asRecord(await readJson(req)); return json(res, 200, sessions.pair(requiredString(body.code, 'code', 256))); }
+      if (req.method === 'GET' && url.pathname === '/v1/wuzzuf/approval-requests') { authorizeSession(req, sessions); return json(res, 200, { ok: true, data: service.wuzzuf.pendingApprovals() }); }
+      const approvalDecisionMatch = url.pathname.match(/^\/v1\/wuzzuf\/approval-requests\/([^/]+)\/decision$/);
+      if (req.method === 'POST' && approvalDecisionMatch) { authorizeSession(req, sessions); const body = asRecord(await readJson(req)); if (typeof body.approved !== 'boolean') throw new ValidationError('approved must be a boolean'); return json(res, 200, { ok: true, data: service.wuzzuf.decideApproval(requiredString(approvalDecisionMatch[1], 'approvalRequestId', 100), body.approved) }); }
       authorize(req, sessions, options.toolToken);
       const wuzzufMatch = url.pathname.match(/^\/v1\/wuzzuf\/tools\/([A-Z_]+)$/);
       if (req.method === 'POST' && wuzzufMatch) {
@@ -81,7 +84,7 @@ export function createBridge(service: OrchestratorService, options: BridgeOption
       throw new HttpError(404, 'Not found');
     } catch (error) {
       const status = error instanceof HttpError ? error.status : error instanceof WuzzufToolError ? error.status : error instanceof ValidationError || error instanceof SyntaxError ? 400 : 500;
-      if (error instanceof WuzzufToolError) return json(res, status, { ok: false, error: { code: error.code, message: error.message, retryable: error.retryable, ...(error.diagnostics ? { diagnostics: error.diagnostics } : {}) } });
+      if (error instanceof WuzzufToolError) return json(res, status, { ok: false, error: { code: error.code, message: error.message, retryable: error.retryable, correlationId: error.correlationId ?? randomUUID(), ...(error.actionRequired ? { actionRequired: error.actionRequired } : {}), ...(error.diagnostics ? { diagnostics: safeDiagnostics(error.diagnostics) } : {}) } });
       json(res, status, { error: status === 500 ? 'Internal server error' : error instanceof Error ? error.message : 'Request failed' });
     }
   });
@@ -96,20 +99,23 @@ class RateLimiter {
 }
 
 async function dispatchWuzzufAction(service: OrchestratorService, action: WuzzufToolAction, body: Record<string, unknown>): Promise<unknown> {
-  const applicationId = () => requiredString(body.applicationId, 'applicationId', 100); const jobRef = () => ({ ...(typeof body.jobId === 'string' ? { jobId: requiredString(body.jobId, 'jobId', 100) } : {}), ...(typeof body.url === 'string' ? { url: requiredString(body.url, 'url', 2_000) } : {}), ...(typeof body.profileId === 'string' ? { profileId: requiredString(body.profileId, 'profileId', 100) } : {}) });
+  const applicationId = () => requiredString(body.applicationId, 'applicationId', 100); const idempotencyKey = typeof body.idempotencyKey === 'string' ? requiredString(body.idempotencyKey, 'idempotencyKey', 128) : undefined; const withIdempotency = idempotencyKey === undefined ? {} : { idempotencyKey }; const jobRef = () => ({ ...(typeof body.jobId === 'string' ? { jobId: requiredString(body.jobId, 'jobId', 100) } : {}), ...(typeof body.url === 'string' ? { url: requiredString(body.url, 'url', 2_000) } : {}), ...(typeof body.profileId === 'string' ? { profileId: requiredString(body.profileId, 'profileId', 100) } : {}) });
   switch (action) {
+    case 'WUZZUF_CREATE_CONNECTION': return service.wuzzuf.createConnection();
+    case 'WUZZUF_VERIFY_CONNECTION': return service.wuzzuf.verifyConnection();
+    case 'WUZZUF_DISCONNECT': return service.wuzzuf.disconnect();
     case 'WUZZUF_SEARCH_JOBS': return service.wuzzuf.search({ queries: stringArray(body.queries, 'queries', 10), locations: stringArray(body.locations, 'locations', 10), ...(typeof body.remote === 'boolean' ? { remote: body.remote } : {}), ...(typeof body.experienceLevel === 'string' ? { experienceLevel: requiredString(body.experienceLevel, 'experienceLevel', 100) } : {}), ...(body.employmentTypes !== undefined ? { employmentTypes: stringArray(body.employmentTypes, 'employmentTypes', 10) } : {}), ...(body.limit !== undefined ? { limit: boundedNumber(body.limit, 'limit', 1, 100, 25) } : {}) });
     case 'WUZZUF_GET_JOB_DETAILS': return service.wuzzuf.details(requiredString(body.url, 'url', 2_000));
     case 'WUZZUF_SCORE_JOB': return service.wuzzuf.score(jobRef());
-    case 'WUZZUF_PREPARE_APPLICATION': return service.wuzzuf.prepare({ ...jobRef(), dryRun: body.dryRun !== false });
-    case 'WUZZUF_FILL_APPLICATION': return service.wuzzuf.fill({ applicationId: applicationId(), ...(Array.isArray(body.approvedAnswerOverrides) ? { approvedAnswerOverrides: body.approvedAnswerOverrides.map((value) => { const item = asRecord(value); return { ...(typeof item.fieldId === 'string' ? { fieldId: requiredString(item.fieldId, 'fieldId', 200) } : {}), ...(typeof item.label === 'string' ? { label: requiredString(item.label, 'label', 500) } : {}), value: requiredString(item.value, 'value', 5_000), approved: true as const }; }) } : {}), dryRun: body.dryRun !== false });
+    case 'WUZZUF_PREPARE_APPLICATION': return service.wuzzuf.prepare({ ...jobRef(), dryRun: body.dryRun !== false, ...withIdempotency });
+    case 'WUZZUF_FILL_APPLICATION': return service.wuzzuf.fill({ applicationId: applicationId(), ...(Array.isArray(body.approvedAnswerOverrides) ? { approvedAnswerOverrides: body.approvedAnswerOverrides.map((value) => { const item = asRecord(value); return { ...(typeof item.fieldId === 'string' ? { fieldId: requiredString(item.fieldId, 'fieldId', 200) } : {}), ...(typeof item.label === 'string' ? { label: requiredString(item.label, 'label', 500) } : {}), value: requiredString(item.value, 'value', 5_000), approved: true as const }; }) } : {}), dryRun: body.dryRun !== false, ...withIdempotency });
     case 'WUZZUF_GET_APPLICATION_REVIEW': return service.wuzzuf.review(applicationId());
-    case 'WUZZUF_SUBMIT_APPLICATION': return service.wuzzuf.submit({ applicationId: applicationId(), approvalToken: requiredString(body.approvalToken, 'approvalToken', 200) });
+    case 'WUZZUF_REQUEST_SUBMISSION_APPROVAL': return service.wuzzuf.requestSubmissionApproval({ applicationId: applicationId(), ttlSeconds: boundedNumber(body.ttlSeconds, 'ttlSeconds', 30, 300, 120), ...withIdempotency });
+    case 'WUZZUF_SUBMIT_APPLICATION': return service.wuzzuf.submit({ applicationId: applicationId(), approvalRequestId: requiredString(body.approvalRequestId, 'approvalRequestId', 100), ...withIdempotency });
     case 'WUZZUF_GET_APPLICATION_STATUS': return service.wuzzuf.status(applicationId());
-    case 'WUZZUF_CANCEL_APPLICATION': return service.wuzzuf.cancel(applicationId());
+    case 'WUZZUF_CANCEL_APPLICATION': return service.wuzzuf.cancel({ applicationId: applicationId(), ...withIdempotency });
     case 'WUZZUF_GET_AUTH_STATUS': return service.wuzzuf.authStatus();
     case 'WUZZUF_OPEN_LOGIN': return service.wuzzuf.openLogin();
-    case 'WUZZUF_CREATE_APPROVAL_TOKEN': return service.wuzzuf.createApprovalToken(applicationId(), boundedNumber(body.ttlSeconds, 'ttlSeconds', 30, 300, 120));
   }
 }
 
@@ -120,6 +126,8 @@ function applySecurityHeaders(req: IncomingMessage, res: ServerResponse, allowed
   res.setHeader('x-content-type-options', 'nosniff'); res.setHeader('cache-control', 'no-store'); res.setHeader('referrer-policy', 'no-referrer');
 }
 function authorize(req: IncomingMessage, sessions: Sessions, toolToken?: string): void { const suppliedTool = req.headers['x-openclaw-tool-token']; if (toolToken && typeof suppliedTool === 'string') { const expected = createHash('sha256').update(toolToken).digest(); const actual = createHash('sha256').update(suppliedTool).digest(); if (timingSafeEqual(expected, actual)) return; } const auth = req.headers.authorization; if (!auth?.startsWith('Bearer ') || !sessions.valid(auth.slice(7))) throw new HttpError(401, 'Pairing required'); }
+function authorizeSession(req: IncomingMessage, sessions: Sessions): void { const auth = req.headers.authorization; if (!auth?.startsWith('Bearer ') || !sessions.valid(auth.slice(7))) throw new HttpError(401, 'Paired extension session required'); }
+function safeDiagnostics(value: Record<string, unknown>): Record<string, unknown> { const allowed = new Set(['applicationId', 'jobId', 'sourceId', 'state', 'errors', 'status']); return Object.fromEntries(Object.entries(value).filter(([key]) => allowed.has(key)).map(([key, item]) => [key, Array.isArray(item) ? item.map((entry) => String(entry).slice(0, 500)).slice(0, 20) : typeof item === 'string' ? item.slice(0, 500) : item])); }
 async function readJson(req: IncomingMessage): Promise<unknown> { let size = 0; const chunks: Buffer[] = []; for await (const chunk of req) { const buffer = Buffer.from(chunk); size += buffer.length; if (size > MAX_BODY_BYTES) throw new HttpError(413, 'Request too large'); chunks.push(buffer); } return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); }
 function json(res: ServerResponse, status: number, body: unknown): void { if (res.headersSent) return; const value = JSON.stringify(body); res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(value) }); res.end(value); }
 function boundedNumber(value: unknown, field: string, min: number, max: number, fallback: number): number { const number = value === undefined ? fallback : Number(value); if (!Number.isFinite(number) || number < min || number > max) throw new ValidationError(`Invalid ${field}`); return number; }

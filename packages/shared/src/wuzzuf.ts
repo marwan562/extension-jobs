@@ -1,11 +1,12 @@
 import type { ApplicationState, FieldAnswer, Job } from './domain.ts';
 
 export const wuzzufToolActions = [
+  'WUZZUF_CREATE_CONNECTION', 'WUZZUF_VERIFY_CONNECTION', 'WUZZUF_DISCONNECT',
   'WUZZUF_SEARCH_JOBS', 'WUZZUF_GET_JOB_DETAILS', 'WUZZUF_SCORE_JOB',
   'WUZZUF_PREPARE_APPLICATION', 'WUZZUF_FILL_APPLICATION',
   'WUZZUF_GET_APPLICATION_REVIEW', 'WUZZUF_SUBMIT_APPLICATION',
   'WUZZUF_GET_APPLICATION_STATUS', 'WUZZUF_CANCEL_APPLICATION',
-  'WUZZUF_GET_AUTH_STATUS', 'WUZZUF_OPEN_LOGIN', 'WUZZUF_CREATE_APPROVAL_TOKEN'
+  'WUZZUF_GET_AUTH_STATUS', 'WUZZUF_OPEN_LOGIN', 'WUZZUF_REQUEST_SUBMISSION_APPROVAL'
 ] as const;
 
 export type WuzzufToolAction = typeof wuzzufToolActions[number];
@@ -21,7 +22,31 @@ export interface WuzzufSearchInput {
 
 export interface WuzzufErrorResult {
   ok: false;
-  error: { code: string; message: string; retryable: boolean; correlationId?: string; diagnostics?: Record<string, unknown> };
+  error: { code: string; message: string; retryable: boolean; correlationId: string; actionRequired?: string; diagnostics?: Record<string, unknown> };
+}
+
+export type WuzzufConnectionStatus = 'disconnected' | 'browser_required' | 'security_check_required' | 'authenticated' | 'expired';
+export interface WuzzufConnection {
+  id: string;
+  userId: string;
+  status: WuzzufConnectionStatus;
+  lastVerifiedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ApprovalRequestStatus = 'pending' | 'approved' | 'rejected' | 'expired' | 'used' | 'invalidated';
+export interface ApprovalRequestRecord {
+  id: string;
+  applicationId: string;
+  bindingHash: string;
+  nonceHash: string;
+  status: ApprovalRequestStatus;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+  decidedAt?: string;
+  usedAt?: string;
 }
 
 export interface WuzzufSuccess<T> { ok: true; data: T; correlationId: string }
@@ -50,15 +75,7 @@ export interface PreparedApplicationRecord {
   submittedAt?: string;
   submissionResult?: { submitted: boolean; confirmation?: string; at: string };
   adapterSessionId?: string;
-}
-
-export interface ApprovalTokenRecord {
-  id: string;
-  applicationId: string;
-  tokenHash: string;
-  expiresAt: string;
-  usedAt?: string;
-  createdAt: string;
+  reviewRevision?: string;
 }
 
 export class WuzzufToolError extends Error {
@@ -66,7 +83,9 @@ export class WuzzufToolError extends Error {
   readonly status: number;
   readonly retryable: boolean;
   readonly diagnostics?: Record<string, unknown>;
-  constructor(code: string, message: string, options: { status?: number; retryable?: boolean; diagnostics?: Record<string, unknown>; cause?: unknown } = {}) {
-    super(message, options.cause === undefined ? undefined : { cause: options.cause }); this.name = 'WuzzufToolError'; this.code = code; this.status = options.status ?? 400; this.retryable = options.retryable ?? false; if (options.diagnostics) this.diagnostics = options.diagnostics;
+  readonly correlationId?: string;
+  readonly actionRequired?: string;
+  constructor(code: string, message: string, options: { status?: number; retryable?: boolean; diagnostics?: Record<string, unknown>; correlationId?: string; actionRequired?: string; cause?: unknown } = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause }); this.name = 'WuzzufToolError'; this.code = code; this.status = options.status ?? 400; this.retryable = options.retryable ?? false; if (options.diagnostics) this.diagnostics = options.diagnostics; if (options.correlationId) this.correlationId = options.correlationId; if (options.actionRequired) this.actionRequired = options.actionRequired;
   }
 }

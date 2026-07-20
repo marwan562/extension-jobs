@@ -12,11 +12,12 @@ const environmentSchema = z.object({
   JOB_SOURCE_MODE: z.string().default('development'),
   CHROME_CDP_ENDPOINT: endpoint.default('http://127.0.0.1:9222'),
   WUZZUF_NAVIGATION_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(60_000),
+  WUZZUF_USER_ID: z.string().min(1).max(100).default('local-user'),
   OPENCLAW_MODE: z.string().optional(),
   OPENCLAW_AGENT_ID: z.string().default('main'),
   OPENCLAW_SESSION_KEY: z.string().default('agent:main:extension-job-copilot'),
   OPENCLAW_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(600).default(120),
-  OPENCLAW_JOB_TOOL_TOKEN: z.string().min(8).optional(),
+  OPENCLAW_JOB_TOOL_TOKEN: z.string().min(32).optional(),
   COMPOSIO_LINKEDIN_SEARCH_TOOL: z.string().optional(),
   COMPOSIO_LINKEDIN_SEARCH_ARGS: z.string().default('{}'),
 }).superRefine((value, context) => {
