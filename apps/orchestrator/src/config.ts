@@ -1,6 +1,8 @@
 import { z } from 'zod';
+import { clientScopes } from '../../../packages/shared-contracts/src/index.ts';
 
 const endpoint = z.string().url().refine((value) => ['http:', 'https:', 'ws:', 'wss:'].includes(new URL(value).protocol), 'CHROME_CDP_ENDPOINT must use http, https, ws, or wss');
+const scopes = z.string().transform((value, context) => { const parsed = value.split(',').map((item) => item.trim()).filter(Boolean); const unsupported = parsed.filter((item) => !clientScopes.includes(item as typeof clientScopes[number])); if (unsupported.length) { context.addIssue({ code: 'custom', message: `Unsupported scopes: ${unsupported.join(', ')}` }); return z.NEVER; } return parsed as Array<typeof clientScopes[number]>; });
 
 const environmentSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65_535).default(18_790),
@@ -19,6 +21,8 @@ const environmentSchema = z.object({
   OPENCLAW_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(600).default(120),
   OPENCLAW_JOB_TOOL_TOKEN: z.string().min(32).optional(),
   COMPOSIO_WUZZUF_TOOL_TOKEN: z.string().min(32).optional(),
+  OPENCLAW_JOB_TOOL_SCOPES: scopes.optional(),
+  COMPOSIO_WUZZUF_TOOL_SCOPES: scopes.optional(),
   COMPOSIO_LINKEDIN_SEARCH_TOOL: z.string().optional(),
   COMPOSIO_LINKEDIN_SEARCH_ARGS: z.string().default('{}'),
 }).superRefine((value, context) => {

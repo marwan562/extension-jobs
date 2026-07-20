@@ -31,7 +31,7 @@ const service = new OrchestratorService(store, source, provider, wuzzufAdapter);
 const allowedOrigin = config.EXTENSION_ID ? `chrome-extension://${config.EXTENSION_ID}` : config.DEV_ORIGIN!;
 const pairingCode = config.PAIRING_CODE ?? crypto.randomUUID();
 if (!config.PAIRING_CODE) process.stderr.write(`One-time pairing code: ${pairingCode}\n`);
-const server = createBridge(service, { allowedOrigin, pairingCode, sessionTtlMs: config.SESSION_TTL_SECONDS * 1000, ...(config.OPENCLAW_JOB_TOOL_TOKEN ? { toolToken: config.OPENCLAW_JOB_TOOL_TOKEN } : {}), ...(config.COMPOSIO_WUZZUF_TOOL_TOKEN ? { composioToolToken: config.COMPOSIO_WUZZUF_TOOL_TOKEN } : {}) });
+const server = createBridge(service, { allowedOrigin, pairingCode, sessionTtlMs: config.SESSION_TTL_SECONDS * 1000, ...(config.OPENCLAW_JOB_TOOL_TOKEN ? { toolToken: config.OPENCLAW_JOB_TOOL_TOKEN } : {}), ...(config.COMPOSIO_WUZZUF_TOOL_TOKEN ? { composioToolToken: config.COMPOSIO_WUZZUF_TOOL_TOKEN } : {}), ...(config.OPENCLAW_JOB_TOOL_SCOPES ? { openclawScopes: config.OPENCLAW_JOB_TOOL_SCOPES } : {}), ...(config.COMPOSIO_WUZZUF_TOOL_SCOPES ? { composioScopes: config.COMPOSIO_WUZZUF_TOOL_SCOPES } : {}) });
 server.listen(config.PORT, '127.0.0.1', () => process.stdout.write(`Orchestrator listening on http://127.0.0.1:${config.PORT}\n`));
 const scheduler = new CampaignScheduler(service); scheduler.start();
 for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, async () => { scheduler.stop(); server.close(); await service.wuzzuf.close(); store.close(); process.exit(0); });
