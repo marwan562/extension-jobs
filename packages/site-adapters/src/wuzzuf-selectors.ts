@@ -11,10 +11,32 @@ export const wuzzufSelectors = {
   requirements: ['[data-testid="job-requirements"]', 'section:has(h2:text-is("Job Requirements"))'],
   responsibilities: ['[data-testid="job-responsibilities"]', 'section:has(h2:text-is("Responsibilities"))'],
   skills: ['[data-testid="job-skills"] a', '[data-testid="job-skills"] li', 'a[href*="/a/"]'],
-  applyButton: ['a:has-text("Apply for Job")', 'button:has-text("Apply")', '[data-testid="apply-button"]'],
-  loginMarker: ['a:has-text("Login")', 'form[action*="login"]', 'input[type="password"]'],
-  authenticatedMarker: ['a[href*="/me/"]', '[data-testid="user-menu"]', 'a:has-text("My Applications")'],
+  applyButton: [
+    'button:has-text("Apply for Job")',
+    'a:has-text("Apply for Job")',
+    'button:has-text("Complete your application")',
+    'a:has-text("Complete your application")',
+    'button:has-text("Complete application")',
+    'a:has-text("Complete application")',
+    'button:has-text("Apply Now")',
+    'a:has-text("Apply Now")',
+    'button:has-text("Apply")',
+    '[data-testid="apply-button"]'
+  ],
+  loginMarker: ['a:has-text("Login")', 'form[action*="login"]', 'input[type="password"]', 'button:has-text("Sign in")', 'a:has-text("Sign in")', 'a[href*="/login"]'],
+  authenticatedMarker: ['a[href*="/me/"]', '[data-testid="user-menu"]', 'a:has-text("My Applications")', 'a[href*="/applications"]', 'a:has-text("Applications")'],
   challengeMarker: ['iframe[src*="captcha"]', '[class*="captcha"]', 'text=/verify you are human|unusual traffic|security check/i'],
-  form: ['form[aria-label*="application" i]', 'form:has(button:has-text("Submit"))', 'form'],
-  submitButton: ['button[type="submit"]', 'button:has-text("Submit Application")', 'button:has-text("Apply")']
+  form: [
+    'form[aria-label*="application" i]',
+    'form:has(button:has-text("Submit"))',
+    'form[action="#"]',
+    'form:not([action*="search"])'
+  ],
+  submitButton: [
+    'button[type="submit"]',
+    'button:has-text("Submit application")',
+    'button:has-text("Submit Application")',
+    'button:has-text("Submit")',
+    'button:has-text("Apply")'
+  ]
 } as const;

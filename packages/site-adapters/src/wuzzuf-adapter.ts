@@ -63,7 +63,14 @@ export class WuzzufAdapter implements JobSiteAdapter {
 
   async authenticationStatus(signal?: AbortSignal): Promise<{ authenticated: boolean; code: 'AUTHENTICATED' | 'WUZZUF_LOGIN_REQUIRED' | 'WUZZUF_CHALLENGE_REQUIRED' }> {
     const page = await this.newPage(); let keepOpen = false; try {
-      await this.goto(page, new URL('/me/applications', this.baseUrl).href, signal);
+      await this.goto(page, new URL('/explore', this.baseUrl).href, signal);
+      await Promise.race([
+        page.waitForSelector('a[href*="/applications"]', { state: 'attached', timeout: 5000 }),
+        page.waitForSelector('a:has-text("Applications")', { state: 'attached', timeout: 5000 }),
+        page.waitForSelector('a:has-text("Login")', { state: 'attached', timeout: 5000 }),
+        page.waitForSelector('button:has-text("Sign in")', { state: 'attached', timeout: 5000 }),
+        page.waitForSelector('input[type="password"]', { state: 'attached', timeout: 5000 })
+      ]).catch(() => undefined);
       const state = detectWuzzufPageState(await page.content());
       if (state === 'challenge') return { authenticated: false, code: 'WUZZUF_CHALLENGE_REQUIRED' };
       const authenticatedMarker = await countAny(page, wuzzufSelectors.authenticatedMarker);
@@ -116,27 +123,109 @@ export class WuzzufAdapter implements JobSiteAdapter {
     if (!auth.authenticated) throw new WuzzufToolError(auth.code, auth.code === 'WUZZUF_CHALLENGE_REQUIRED' ? 'Complete the Wuzzuf challenge manually' : 'Open the Wuzzuf login browser and sign in', { status: auth.code === 'WUZZUF_LOGIN_REQUIRED' ? 401 : 409 });
     const page = await this.newPage(); try {
       await this.goto(page, normalizeWuzzufUrl(job.url, this.baseUrl), context.signal); await this.assertSafePage(page);
+      await Promise.race([
+        page.waitForSelector('button:has-text("Apply for Job")', { state: 'attached', timeout: 8000 }),
+        page.waitForSelector('a:has-text("Apply for Job")', { state: 'attached', timeout: 8000 }),
+        page.waitForSelector('button:has-text("Apply")', { state: 'attached', timeout: 8000 }),
+        page.waitForSelector('[data-testid="apply-button"]', { state: 'attached', timeout: 8000 })
+      ]).catch(() => undefined);
       const apply = await firstExisting(page, wuzzufSelectors.applyButton); if (!apply) throw new WuzzufToolError('WUZZUF_APPLICATION_UNAVAILABLE', 'This job is not accepting applications', { status: 409 });
-      await apply.click(); await page.waitForLoadState('domcontentloaded', { timeout: this.timeoutMs }).catch(() => undefined); await this.assertSafePage(page);
+      let clicked = false;
+      for (const selector of wuzzufSelectors.applyButton) {
+        const locator = page.locator(selector);
+        const count = await locator.count();
+        for (let i = 0; i < count; i++) {
+          try {
+            const item = locator.nth(i);
+            if (await item.isVisible()) {
+              await item.click({ timeout: 5000 });
+              clicked = true;
+              break;
+            }
+          } catch {
+            // try next
+          }
+        }
+        if (clicked) break;
+      }
+      if (!clicked) await apply.click();
+      await page.waitForLoadState('domcontentloaded', { timeout: this.timeoutMs }).catch(() => undefined); await this.assertSafePage(page);
       const id = randomUUID(); this.applications.set(id, { page }); return { id, url: page.url() };
-    } catch (error) { if (!this.keepForManualVerification(error, page)) await page.close().catch(() => undefined); throw await this.withDiagnostics(error, page, 'start-application'); }
+    } catch (error) { const diag = await this.withDiagnostics(error, page, 'start-application'); if (!this.keepForManualVerification(error, page)) await page.close().catch(() => undefined); throw diag; }
   }
 
   async collectFields(session: { id: string }): Promise<FormField[]> {
-    const page = this.page(session.id); await this.assertSafePage(page); const form = await firstExisting(page, wuzzufSelectors.form); if (!form) throw new WuzzufToolError('WUZZUF_UNSUPPORTED_LAYOUT', 'Application form was not found', { retryable: true });
+    const page = this.page(session.id); await this.assertSafePage(page);
+    await Promise.race([
+      page.waitForSelector('form[aria-label*="application" i]', { state: 'attached', timeout: 5000 }),
+      page.waitForSelector('form:has(button:has-text("Submit"))', { state: 'attached', timeout: 5000 }),
+      page.waitForSelector('form[action="#"]', { state: 'attached', timeout: 5000 }),
+      page.waitForSelector('form:not([action*="search"])', { state: 'attached', timeout: 5000 })
+    ]).catch(() => undefined);
+    const form = await firstExisting(page, wuzzufSelectors.form); if (!form) throw new WuzzufToolError('WUZZUF_UNSUPPORTED_LAYOUT', 'Application form was not found', { retryable: true });
     return form.locator('input, select, textarea').evaluateAll((nodes) => nodes.filter((node) => !(node instanceof HTMLInputElement) || !['hidden', 'submit', 'button'].includes(node.type)).map((node, index) => {
-      const el = node as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement; const id = el.id || el.name || `field-${index}`; const labelled = el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.textContent : undefined; const wrapping = el.closest('label')?.textContent; const label = (labelled || el.getAttribute('aria-label') || wrapping || el.name || id).replace(/\s+/g, ' ').trim();
-      const rawType = el instanceof HTMLSelectElement ? 'select' : el instanceof HTMLInputElement ? el.type : 'text'; const supported = ['email', 'tel', 'select', 'radio', 'checkbox', 'file'].includes(rawType) ? rawType : 'text';
+      const el = node as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+      const id = `field-${index}`;
+      
+      let questionText = '';
+      let current = el.parentElement;
+      while (current && current.tagName !== 'FORM') {
+        let sibling = current.previousElementSibling;
+        while (sibling) {
+          if (sibling.classList.contains('css-11rcwxl') || sibling.querySelector('.etjvxgw3') || sibling.tagName === 'LABEL') {
+            questionText = sibling.textContent || '';
+            break;
+          }
+          sibling = sibling.previousElementSibling;
+        }
+        if (questionText) break;
+        current = current.parentElement;
+      }
+      questionText = questionText.replace(/\s+/g, ' ').trim();
+
+      const labelled = el.id ? document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.textContent : undefined;
+      const wrapping = el.closest('label')?.textContent;
+      let label = (labelled || el.getAttribute('aria-label') || wrapping || el.name || id).replace(/\s+/g, ' ').trim();
+
+      if (questionText && questionText !== label) {
+        if (el.type === 'radio' || el.type === 'checkbox') {
+          label = `${questionText} [Option: ${label}]`;
+        } else {
+          label = questionText;
+        }
+      }
+
+      const rawType = el instanceof HTMLSelectElement ? 'select' : el instanceof HTMLInputElement ? el.type : 'text';
+      const supported = ['email', 'tel', 'select', 'radio', 'checkbox', 'file'].includes(rawType) ? rawType : 'text';
       return { id, label, type: supported, required: el.required, ...(el instanceof HTMLSelectElement ? { options: Array.from(el.options).map((option) => option.text.trim()).filter(Boolean) } : {}) };
     })) as Promise<FormField[]>;
   }
 
   async fillFields(session: { id: string }, answers: FieldAnswer[], context: AdapterContext): Promise<{ filled: string[]; skipped: string[] }> {
     context.signal.throwIfAborted(); const page = this.page(session.id); const filled: string[] = []; const skipped: string[] = [];
+    const form = await firstExisting(page, wuzzufSelectors.form);
+    if (!form) return { filled, skipped };
+    const inputs = form.locator('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea');
     for (const answer of answers) {
       context.signal.throwIfAborted(); if (!answer.value || answer.confirmationRequired || answer.confidence < 0.8) { skipped.push(answer.label); continue; }
-      const locator = page.getByLabel(answer.label, { exact: true }); if (await locator.count() !== 1) { skipped.push(answer.label); continue; }
-      if (!context.dryRun) { const tag = await locator.evaluate((element) => element.tagName); const type = await locator.getAttribute('type'); if (tag === 'SELECT') await locator.selectOption({ label: answer.value }); else if (type === 'checkbox' || type === 'radio') { if (/^(yes|true|checked)$/i.test(answer.value)) await locator.check(); } else await locator.fill(answer.value); }
+      const match = answer.fieldId?.match(/^field-(\d+)$/);
+      if (!match) { skipped.push(answer.label); continue; }
+      const index = parseInt(match[1]!, 10);
+      const locator = inputs.nth(index);
+      if (await locator.count() !== 1) { skipped.push(answer.label); continue; }
+      if (!context.dryRun) {
+        const tag = await locator.evaluate((element) => element.tagName);
+        const type = await locator.getAttribute('type');
+        if (tag === 'SELECT' && answer.value) {
+          await locator.selectOption({ label: answer.value as string });
+        } else if (type === 'checkbox' || type === 'radio') {
+          if (answer.value && /^(yes|true|checked)$/i.test(answer.value)) {
+            await locator.check({ force: true });
+          }
+        } else if (answer.value) {
+          await locator.fill(answer.value as string);
+        }
+      }
       filled.push(answer.label);
     }
     return { filled, skipped };
@@ -200,7 +289,23 @@ export class WuzzufAdapter implements JobSiteAdapter {
   private async withDiagnostics(error: unknown, page: Page, operation: string): Promise<Error> { const safeError = this.browserError(error, page); if (safeError instanceof WuzzufToolError && safeError.diagnostics) return safeError; let screenshot: string | undefined; try { if (!page.isClosed()) { await mkdir(this.screenshotDir, { recursive: true }); screenshot = `${operation}-${Date.now()}.png`; await page.screenshot({ path: resolve(this.screenshotDir, screenshot), fullPage: true }); } } catch { /* diagnostics must not mask the original error */ } if (safeError instanceof WuzzufToolError) return new WuzzufToolError(safeError.code, safeError.message, { status: safeError.status, retryable: safeError.retryable, diagnostics: { ...(safeError.diagnostics ?? {}), operation, ...(screenshot ? { screenshot } : {}) }, cause: safeError.cause }); return new WuzzufToolError('WUZZUF_BROWSER_ERROR', 'The Wuzzuf browser operation failed. Check the open Chrome tab and retry.', { status: 502, retryable: true, diagnostics: { operation, ...(screenshot ? { screenshot } : {}) }, cause: safeError }); }
 }
 
-async function firstExisting(page: Page, selectors: readonly string[]) { for (const selector of selectors) { const locator = page.locator(selector).first(); if (await locator.count()) return locator; } return undefined; }
+async function firstExisting(page: Page, selectors: readonly string[]) {
+  for (const selector of selectors) {
+    const locator = page.locator(selector);
+    const count = await locator.count();
+    for (let i = 0; i < count; i++) {
+      const item = locator.nth(i);
+      if (await item.isVisible()) {
+        return item;
+      }
+    }
+  }
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    if (await locator.count()) return locator;
+  }
+  return undefined;
+}
 async function countAny(page: Page, selectors: readonly string[]): Promise<number> { let count = 0; for (const selector of selectors) count += await page.locator(selector).count(); return count; }
 function clean(value: string): string { return value.replace(/\s+/g, ' ').trim(); }
 function isChallenge(error: unknown): error is WuzzufToolError { return error instanceof WuzzufToolError && error.code === 'WUZZUF_CHALLENGE_REQUIRED'; }
