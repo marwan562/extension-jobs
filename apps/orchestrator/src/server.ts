@@ -6,6 +6,7 @@ import { parseFriendlySchedule, ValidationError, asRecord, requiredString, strin
 import type { AgentSettings, ExecutionMode, JobCampaign } from '../../../packages/shared/src/domain.ts';
 import { WuzzufToolError, wuzzufToolActions, type WuzzufToolAction } from '../../../packages/shared/src/wuzzuf.ts';
 import { OrchestratorService } from './service.ts';
+import { sanitizeDiagnostics } from '../../../packages/security/src/index.ts';
 
 const MAX_BODY_BYTES = 6 * 1024 * 1024;
 
@@ -37,6 +38,13 @@ export function createBridge(service: OrchestratorService, options: BridgeOption
       if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, emergencyStop: service.emergencyStop.active, chrome: service.wuzzuf.browserStatus() });
+      if (req.method === 'GET' && url.pathname === '/health/live') return json(res, 200, { ok: true, status: 'live' });
+      if (req.method === 'GET' && url.pathname === '/health/ready') { const browser = service.wuzzuf.browserStatus(); const ready = !service.emergencyStop.active; return json(res, ready ? 200 : 503, { ok: ready, storage: service.store.health(), queue: service.store.queue.health(), browser, emergencyStop: service.emergencyStop.active }); }
+      if (req.method === 'GET' && url.pathname === '/health/storage') return json(res, 200, service.store.health());
+      if (req.method === 'GET' && url.pathname === '/health/queue') return json(res, 200, { ok: true, counts: service.store.queue.health() });
+      if (req.method === 'GET' && url.pathname === '/health/browser') return json(res, 200, { ok: true, ...service.wuzzuf.browserStatus() });
+      if (req.method === 'GET' && url.pathname === '/health/wuzzuf-auth') return json(res, 200, { ok: true, ...service.wuzzuf.authStatus() });
+      if (req.method === 'GET' && url.pathname === '/health/composio') return json(res, 200, { ok: true, configured: Boolean(process.env.COMPOSIO_API_KEY), secretValues: 'redacted' });
       if (req.method === 'POST' && url.pathname === '/v1/pair') { const body = asRecord(await readJson(req)); return json(res, 200, sessions.pair(requiredString(body.code, 'code', 256))); }
       if (req.method === 'GET' && url.pathname === '/v1/wuzzuf/approval-requests') { authorizeSession(req, sessions); return json(res, 200, { ok: true, data: service.wuzzuf.pendingApprovals() }); }
       const approvalDecisionMatch = url.pathname.match(/^\/v1\/wuzzuf\/approval-requests\/([^/]+)\/decision$/);
@@ -111,7 +119,7 @@ async function dispatchWuzzufAction(service: OrchestratorService, action: Wuzzuf
     case 'WUZZUF_FILL_APPLICATION': return service.wuzzuf.fill({ applicationId: applicationId(), ...(Array.isArray(body.approvedAnswerOverrides) ? { approvedAnswerOverrides: body.approvedAnswerOverrides.map((value) => { const item = asRecord(value); return { ...(typeof item.fieldId === 'string' ? { fieldId: requiredString(item.fieldId, 'fieldId', 200) } : {}), ...(typeof item.label === 'string' ? { label: requiredString(item.label, 'label', 500) } : {}), value: requiredString(item.value, 'value', 5_000), approved: true as const }; }) } : {}), dryRun: body.dryRun !== false, ...withIdempotency });
     case 'WUZZUF_GET_APPLICATION_REVIEW': return service.wuzzuf.review(applicationId());
     case 'WUZZUF_REQUEST_SUBMISSION_APPROVAL': return service.wuzzuf.requestSubmissionApproval({ applicationId: applicationId(), ttlSeconds: boundedNumber(body.ttlSeconds, 'ttlSeconds', 30, 300, 120), ...withIdempotency });
-    case 'WUZZUF_SUBMIT_APPLICATION': return service.wuzzuf.submit({ applicationId: applicationId(), approvalRequestId: requiredString(body.approvalRequestId, 'approvalRequestId', 100), ...withIdempotency });
+    case 'WUZZUF_SUBMIT_APPLICATION': return service.wuzzuf.submit({ applicationId: applicationId(), approvalRequestId: requiredString(body.approvalRequestId, 'approvalRequestId', 100), approvalToken: requiredString(body.approvalToken, 'approvalToken', 256), ...withIdempotency });
     case 'WUZZUF_GET_APPLICATION_STATUS': return service.wuzzuf.status(applicationId());
     case 'WUZZUF_CANCEL_APPLICATION': return service.wuzzuf.cancel({ applicationId: applicationId(), ...withIdempotency });
     case 'WUZZUF_GET_AUTH_STATUS': return service.wuzzuf.authStatus();
@@ -127,7 +135,7 @@ function applySecurityHeaders(req: IncomingMessage, res: ServerResponse, allowed
 }
 function authorize(req: IncomingMessage, sessions: Sessions, toolToken?: string): void { const suppliedTool = req.headers['x-openclaw-tool-token']; if (toolToken && typeof suppliedTool === 'string') { const expected = createHash('sha256').update(toolToken).digest(); const actual = createHash('sha256').update(suppliedTool).digest(); if (timingSafeEqual(expected, actual)) return; } const auth = req.headers.authorization; if (!auth?.startsWith('Bearer ') || !sessions.valid(auth.slice(7))) throw new HttpError(401, 'Pairing required'); }
 function authorizeSession(req: IncomingMessage, sessions: Sessions): void { const auth = req.headers.authorization; if (!auth?.startsWith('Bearer ') || !sessions.valid(auth.slice(7))) throw new HttpError(401, 'Paired extension session required'); }
-function safeDiagnostics(value: Record<string, unknown>): Record<string, unknown> { const allowed = new Set(['applicationId', 'jobId', 'sourceId', 'state', 'errors', 'status']); return Object.fromEntries(Object.entries(value).filter(([key]) => allowed.has(key)).map(([key, item]) => [key, Array.isArray(item) ? item.map((entry) => String(entry).slice(0, 500)).slice(0, 20) : typeof item === 'string' ? item.slice(0, 500) : item])); }
+function safeDiagnostics(value: Record<string, unknown>): Record<string, unknown> { const allowed = new Set(['applicationId', 'jobId', 'sourceId', 'state', 'errors', 'status']); return sanitizeDiagnostics(Object.fromEntries(Object.entries(value).filter(([key]) => allowed.has(key)).map(([key, item]) => [key, Array.isArray(item) ? item.map((entry) => String(entry).slice(0, 500)).slice(0, 20) : typeof item === 'string' ? item.slice(0, 500) : item]))) as Record<string, unknown>; }
 async function readJson(req: IncomingMessage): Promise<unknown> { let size = 0; const chunks: Buffer[] = []; for await (const chunk of req) { const buffer = Buffer.from(chunk); size += buffer.length; if (size > MAX_BODY_BYTES) throw new HttpError(413, 'Request too large'); chunks.push(buffer); } return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); }
 function json(res: ServerResponse, status: number, body: unknown): void { if (res.headersSent) return; const value = JSON.stringify(body); res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(value) }); res.end(value); }
 function boundedNumber(value: unknown, field: string, min: number, max: number, fallback: number): number { const number = value === undefined ? fallback : Number(value); if (!Number.isFinite(number) || number < min || number > max) throw new ValidationError(`Invalid ${field}`); return number; }

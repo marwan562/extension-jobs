@@ -3,20 +3,39 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/openclaw-wuzzuf", "apps/composio-host", "packages/composio-wuzzuf"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "engines": {
     "node": ">=24"
   },
   "scripts": {
+    "dev": "node --env-file-if-exists=.env --experimental-strip-types scripts/dev.ts",
+    "dev:orchestrator": "node --env-file-if-exists=.env --experimental-strip-types apps/orchestrator/src/main.ts",
+    "dev:worker": "node --env-file-if-exists=.env --experimental-strip-types apps/playwright-worker/src/main.ts",
+    "dev:extension": "tsc -p apps/extension/tsconfig.json --watch",
+    "dev:composio": "npm run --workspace @extension-jobs/composio-host build && npm run --workspace @extension-jobs/composio-host start",
+    "dev:openclaw": "npm run --workspace @extension-jobs/openclaw-wuzzuf build",
     "build": "tsc -p tsconfig.json && tsc -p apps/extension/tsconfig.json && npm run --workspace @extension-jobs/composio-wuzzuf build && npm run --workspace @extension-jobs/openclaw-wuzzuf build && npm run --workspace @extension-jobs/composio-host build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p apps/extension/tsconfig.json --noEmit && npm run --workspace @extension-jobs/composio-wuzzuf typecheck && npm run --workspace @extension-jobs/openclaw-wuzzuf typecheck && npm run --workspace @extension-jobs/composio-host typecheck",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test:unit": "node --experimental-strip-types --test tests/domain.test.ts tests/store.test.ts tests/wuzzuf-parser.test.ts tests/security.test.ts tests/queue.test.ts",
+    "test:contract": "node --experimental-strip-types --test tests/openclaw-manifest-contract.test.ts tests/wuzzuf-toolkit.test.ts tests/contracts.test.ts",
+    "test:integration": "node --experimental-strip-types --test tests/orchestrator.test.ts tests/bridge.test.ts tests/wuzzuf-store.test.ts tests/wuzzuf-integration.test.ts",
+    "test:e2e": "node --experimental-strip-types --test tests/playwright.test.ts tests/wuzzuf-integration.test.ts",
+    "lint": "tsc -p tsconfig.json --noEmit && tsc -p apps/extension/tsconfig.json --noEmit",
+    "doctor": "node --env-file-if-exists=.env --experimental-strip-types scripts/doctor.ts",
+    "secret:scan": "node --experimental-strip-types scripts/secret-scan.ts",
     "test:wuzzuf": "node --experimental-strip-types --test tests/wuzzuf-*.test.ts",
     "start": "node --env-file-if-exists=.env --experimental-strip-types apps/orchestrator/src/main.ts",
     "start:mock-site": "node --experimental-strip-types apps/playwright-worker/src/main.ts",
     "start:composio": "npm run --workspace @extension-jobs/composio-host start",
     "build:openclaw": "npm run --workspace @extension-jobs/openclaw-wuzzuf build",
-    "validate:openclaw": "npm run --workspace @extension-jobs/openclaw-wuzzuf plugin:validate"
+    "validate:openclaw": "npm run --workspace @extension-jobs/openclaw-wuzzuf plugin:validate",
+    "plugin:build": "npm run --workspace @extension-jobs/openclaw-wuzzuf build",
+    "plugin:validate": "npm run --workspace @extension-jobs/openclaw-wuzzuf plugin:validate",
+    "openclaw:install": "openclaw plugins install --link ./apps/openclaw-wuzzuf"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",

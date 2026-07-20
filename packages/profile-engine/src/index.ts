@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { CandidateProfile, FieldAnswer, ProfileFact } from '../../shared/src/domain.ts';
 
 const sensitivePatterns = [/salary|compensation|pay/i, /sponsor|visa|work authorization|legally authorized/i, /relocat/i, /background check/i, /disab|demographic|race|ethnic|gender/i, /security clearance/i, /legal declaration|terms and conditions/i, /upload|resume|cv|file/i];
@@ -47,4 +47,20 @@ export function normalizeQuestion(question: string): string { return question.to
 
 export function generatedAnswerCannotVerify(answer: FieldAnswer): ProfileFact {
   return { id: randomUUID(), path: `generated.${normalizeQuestion(answer.label)}`, value: answer.value, kind: 'generated_prose', source: 'answer_approval' };
+}
+
+export interface ImmutableProfileSnapshot {
+  readonly id: string; readonly profileId: string; readonly version: number;
+  readonly facts: readonly ProfileFact[]; readonly factsHash: string;
+  readonly resumeFileId?: string; readonly resumeHash: string; readonly createdAt: string;
+}
+
+export function hashProfileFacts(facts: readonly ProfileFact[]): string {
+  const canonical = [...facts].map(({ id, path, value, kind, source, verifiedAt }) => ({ id, path, value, kind, source, verifiedAt: verifiedAt ?? null })).sort((a, b) => a.id.localeCompare(b.id));
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+}
+
+export function createProfileSnapshot(profile: CandidateProfile, version: number, resume?: { id: string; content: Uint8Array }): ImmutableProfileSnapshot {
+  const facts = structuredClone(profile.facts); const factsHash = hashProfileFacts(facts);
+  return Object.freeze({ id: randomUUID(), profileId: profile.id, version, facts: Object.freeze(facts), factsHash, ...(resume ? { resumeFileId: resume.id } : {}), resumeHash: resume ? createHash('sha256').update(resume.content).digest('hex') : createHash('sha256').update('').digest('hex'), createdAt: new Date().toISOString() });
 }

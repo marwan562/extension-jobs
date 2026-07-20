@@ -7,6 +7,7 @@ import { WuzzufAdapter, type JobSource } from '../../../packages/site-adapters/s
 import type { LlmProvider } from '../../../packages/provider-sdk/src/index.ts';
 import { Store } from './store.ts';
 import { WuzzufToolService } from './wuzzuf-tool-service.ts';
+import { sanitizeAuditDetail } from '../../../packages/security/src/index.ts';
 
 export class EmergencyStop {
   private controller = new AbortController(); private stopped = false;
@@ -23,7 +24,7 @@ export class OrchestratorService {
   constructor(store: Store, source: JobSource, provider: LlmProvider, wuzzufAdapter = new WuzzufAdapter()) { this.store = store; this.source = source; this.provider = provider; this.wuzzuf = new WuzzufToolService(store, wuzzufAdapter, this.emergencyStop, this); }
   get settings(): AgentSettings { return this.store.getAgentSettings() ?? { chatModel: '9router/9router-models', answerModel: '9router/9router-models', matchingModel: '9router/9router-models', temperature: 0.2, maximumAnswerLength: 800, confidenceThreshold: 0.8, maximumConcurrentRuns: 1, defaultDryRun: true, browserHeadless: true, updatedAt: new Date().toISOString() }; }
   saveSettings(settings: AgentSettings): void { this.store.saveAgentSettings(settings); this.audit(randomUUID(), 'agent.settings_updated', { chatModel: settings.chatModel, answerModel: settings.answerModel }); }
-  audit(correlationId: string, type: string, detail: Record<string, unknown>, applicationId?: string): void { this.store.audit({ id: randomUUID(), correlationId, ...(applicationId ? { applicationId } : {}), type, at: new Date().toISOString(), detail }); }
+  audit(correlationId: string, type: string, detail: Record<string, unknown>, applicationId?: string): void { this.store.audit({ id: randomUUID(), correlationId, ...(applicationId ? { applicationId } : {}), type, at: new Date().toISOString(), detail: sanitizeAuditDetail(detail) as Record<string, unknown> }); }
   saveProfile(profile: CandidateProfile): void { this.store.saveProfile(profile); }
   createCampaign(campaign: JobCampaign): { campaign: JobCampaign; preview: string } { this.emergencyStop.assertRunning(); this.store.saveCampaign(campaign); this.audit(campaign.id, 'campaign.created', { preview: schedulePreview(campaign) }); return { campaign, preview: schedulePreview(campaign) }; }
   async runCampaign(campaign: JobCampaign): Promise<{ correlationId: string; jobs: Job[]; applications: Array<{ id: string; job: Job; answers: FieldAnswer[] }> }> {

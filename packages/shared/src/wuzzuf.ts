@@ -1,13 +1,8 @@
 import type { ApplicationState, FieldAnswer, Job } from './domain.ts';
+import { wuzzufToolActions as canonicalWuzzufToolActions } from '../../shared-contracts/src/index.ts';
+import type { FormFingerprint } from '../../shared-contracts/src/index.ts';
 
-export const wuzzufToolActions = [
-  'WUZZUF_CREATE_CONNECTION', 'WUZZUF_VERIFY_CONNECTION', 'WUZZUF_DISCONNECT',
-  'WUZZUF_SEARCH_JOBS', 'WUZZUF_GET_JOB_DETAILS', 'WUZZUF_SCORE_JOB',
-  'WUZZUF_PREPARE_APPLICATION', 'WUZZUF_FILL_APPLICATION',
-  'WUZZUF_GET_APPLICATION_REVIEW', 'WUZZUF_SUBMIT_APPLICATION',
-  'WUZZUF_GET_APPLICATION_STATUS', 'WUZZUF_CANCEL_APPLICATION',
-  'WUZZUF_GET_AUTH_STATUS', 'WUZZUF_OPEN_LOGIN', 'WUZZUF_REQUEST_SUBMISSION_APPROVAL'
-] as const;
+export const wuzzufToolActions = canonicalWuzzufToolActions;
 
 export type WuzzufToolAction = typeof wuzzufToolActions[number];
 
@@ -58,6 +53,10 @@ export interface PreparedApplicationRecord {
   jobId: string;
   job: Job;
   profileId: string;
+  profileSnapshotId?: string;
+  resumeFileId?: string;
+  resumeHash?: string;
+  factsHash?: string;
   selectedResume?: { id: string; name: string; sourceName: string; approved: boolean };
   answers: FieldAnswer[];
   filledFields: string[];
@@ -76,6 +75,7 @@ export interface PreparedApplicationRecord {
   submissionResult?: { submitted: boolean; confirmation?: string; at: string };
   adapterSessionId?: string;
   reviewRevision?: string;
+  formFingerprint?: FormFingerprint;
 }
 
 export class WuzzufToolError extends Error {

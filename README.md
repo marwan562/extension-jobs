@@ -14,6 +14,7 @@ Requires Node.js 24+ and Google Chrome. Start Chrome with remote debugging befor
 
 ```sh
 npm install
+npm run doctor
 npm run typecheck
 npm test
 npm run build
@@ -25,9 +26,9 @@ Set `CHROME_CDP_ENDPOINT=http://127.0.0.1:9222` (the default). Open the extensio
 
 ## Wuzzuf actions
 
-The common orchestrator API implements connection management, search, full job details, profile scoring, application preparation, safe fill, review, human approval requests, idempotent submission, status, and cancellation. An agent can request approval but cannot grant it: only a paired extension session can approve the exact reviewed job, resume, and answers. No approval secret is returned to an agent or extension page.
+The common orchestrator API implements connection management, search, full job details, profile scoring, application preparation, safe fill, review, human approval requests, idempotent submission, status, and cancellation. An agent can request approval but cannot grant it: only a paired extension session can approve the exact reviewed job, resume, answers, profile snapshot, and form fingerprint. The one-use token is returned only to that extension decision flow, kept in extension memory, and only its hash is persisted.
 
-The Composio SDK exposes session-scoped custom-tool slugs such as `LOCAL_WUZZUF_SEARCH_JOBS`. OpenClaw exposes individual tools such as `wuzzuf_search_jobs`, `wuzzuf_request_submission_approval`, and `job_emergency_stop`; the old mega-tool is removed. See [local development](docs/local-development.md), [architecture](docs/architecture.md), [extension installation](docs/extension-installation.md), and [known limitations](docs/known-limitations.md).
+The Composio SDK exposes session-scoped custom-tool slugs such as `LOCAL_WUZZUF_SEARCH_JOBS`. OpenClaw exposes individual tools such as `wuzzuf_search_jobs`, `wuzzuf_request_submission_approval`, `campaign_run`, and `job_automation_emergency_stop`; compatibility aliases for the earlier focused helper names remain temporarily. See [local development](docs/local-development.md), [architecture](docs/architecture.md), [extension installation](docs/extension-installation.md), and [known limitations](docs/known-limitations.md).
 
 ## Safety
 
