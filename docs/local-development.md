@@ -95,12 +95,12 @@ COMPOSIO_USER_ID=local-user
 COMPOSIO_HOST_TOKEN=<random-secret-at-least-32-characters>
 COMPOSIO_TOOLKITS=wuzzuf,linkedin
 WUZZUF_ORCHESTRATOR_URL=http://127.0.0.1:18790
-WUZZUF_ORCHESTRATOR_PAIRING_CODE="$PAIRING_CODE"
-npm run start:composio
+COMPOSIO_WUZZUF_TOOL_TOKEN=<different-random-secret-at-least-32-characters>
+npm run dev:composio
 ```
 
 The host defaults to Wuzzuf plus LinkedIn, stores only the reusable session ID at `.data/composio-session.json`, and exposes health at `http://127.0.0.1:18791/health`. Its other routes require `Authorization: Bearer $COMPOSIO_HOST_TOKEN`. The extension never receives the Composio API key. The process receives `LOCAL_WUZZUF_*` tools plus LinkedIn; custom Wuzzuf tools remain local and in-process.
 
-Submission approval is a two-party flow: an agent calls `WUZZUF_REQUEST_SUBMISSION_APPROVAL`, the extension shows the exact job/resume/answers and records the human decision using its paired session, and submission receives only the resulting server-side request ID. Editing the reviewed application invalidates approval.
+Submission approval is a two-party flow: an agent calls `WUZZUF_REQUEST_SUBMISSION_APPROVAL`, the extension shows the exact job/resume/answers and records the human decision using its paired session, and the one-use token is returned only to that extension flow. Only its hash is persisted. Editing the reviewed application invalidates approval.
 
 For the existing CLI-backed LinkedIn source, confirm the current read-tool schema with `composio execute <slug> --get-schema`, then set `COMPOSIO_LINKEDIN_SEARCH_TOOL` and `COMPOSIO_LINKEDIN_SEARCH_ARGS`. Never guess or replay an uncertain write.

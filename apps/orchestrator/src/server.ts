@@ -25,7 +25,7 @@ class Sessions {
 
 class HttpError extends Error { readonly status: number; constructor(status: number, message: string) { super(message); this.status = status; } }
 
-export interface BridgeOptions { allowedOrigin: string; pairingCode: string; sessionTtlMs?: number; toolToken?: string }
+export interface BridgeOptions { allowedOrigin: string; pairingCode: string; sessionTtlMs?: number; toolToken?: string; composioToolToken?: string }
 
 export function createBridge(service: OrchestratorService, options: BridgeOptions) {
   if (!/^chrome-extension:\/\/[a-p]{32}$/.test(options.allowedOrigin) && !options.allowedOrigin.startsWith('http://127.0.0.1:')) throw new Error('An exact extension or loopback development origin is required');
@@ -49,7 +49,7 @@ export function createBridge(service: OrchestratorService, options: BridgeOption
       if (req.method === 'GET' && url.pathname === '/v1/wuzzuf/approval-requests') { authorizeSession(req, sessions); return json(res, 200, { ok: true, data: service.wuzzuf.pendingApprovals() }); }
       const approvalDecisionMatch = url.pathname.match(/^\/v1\/wuzzuf\/approval-requests\/([^/]+)\/decision$/);
       if (req.method === 'POST' && approvalDecisionMatch) { authorizeSession(req, sessions); const body = asRecord(await readJson(req)); if (typeof body.approved !== 'boolean') throw new ValidationError('approved must be a boolean'); return json(res, 200, { ok: true, data: service.wuzzuf.decideApproval(requiredString(approvalDecisionMatch[1], 'approvalRequestId', 100), body.approved) }); }
-      authorize(req, sessions, options.toolToken);
+      authorize(req, sessions, options.toolToken, options.composioToolToken);
       const wuzzufMatch = url.pathname.match(/^\/v1\/wuzzuf\/tools\/([A-Z_]+)$/);
       if (req.method === 'POST' && wuzzufMatch) {
         const action = wuzzufMatch[1] as WuzzufToolAction; if (!wuzzufToolActions.includes(action)) throw new HttpError(404, 'Unknown Wuzzuf action'); const body = asRecord(await readJson(req)); const data = await dispatchWuzzufAction(service, action, body); return json(res, 200, { ok: true, data });
@@ -133,7 +133,8 @@ function applySecurityHeaders(req: IncomingMessage, res: ServerResponse, allowed
   res.setHeader('vary', 'Origin'); res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS'); res.setHeader('access-control-allow-headers', 'authorization,content-type');
   res.setHeader('x-content-type-options', 'nosniff'); res.setHeader('cache-control', 'no-store'); res.setHeader('referrer-policy', 'no-referrer');
 }
-function authorize(req: IncomingMessage, sessions: Sessions, toolToken?: string): void { const suppliedTool = req.headers['x-openclaw-tool-token']; if (toolToken && typeof suppliedTool === 'string') { const expected = createHash('sha256').update(toolToken).digest(); const actual = createHash('sha256').update(suppliedTool).digest(); if (timingSafeEqual(expected, actual)) return; } const auth = req.headers.authorization; if (!auth?.startsWith('Bearer ') || !sessions.valid(auth.slice(7))) throw new HttpError(401, 'Pairing required'); }
+function authorize(req: IncomingMessage, sessions: Sessions, toolToken?: string, composioToolToken?: string): void { const suppliedOpenClaw = req.headers['x-openclaw-tool-token']; if (toolToken && typeof suppliedOpenClaw === 'string' && secretMatches(suppliedOpenClaw, toolToken)) return; const suppliedComposio = req.headers['x-composio-tool-token']; if (composioToolToken && typeof suppliedComposio === 'string' && secretMatches(suppliedComposio, composioToolToken)) return; const auth = req.headers.authorization; if (!auth?.startsWith('Bearer ') || !sessions.valid(auth.slice(7))) throw new HttpError(401, 'Client authentication required'); }
+function secretMatches(actualValue: string, expectedValue: string): boolean { const expected = createHash('sha256').update(expectedValue).digest(); const actual = createHash('sha256').update(actualValue).digest(); return timingSafeEqual(expected, actual); }
 function authorizeSession(req: IncomingMessage, sessions: Sessions): void { const auth = req.headers.authorization; if (!auth?.startsWith('Bearer ') || !sessions.valid(auth.slice(7))) throw new HttpError(401, 'Paired extension session required'); }
 function safeDiagnostics(value: Record<string, unknown>): Record<string, unknown> { const allowed = new Set(['applicationId', 'jobId', 'sourceId', 'state', 'errors', 'status']); return sanitizeDiagnostics(Object.fromEntries(Object.entries(value).filter(([key]) => allowed.has(key)).map(([key, item]) => [key, Array.isArray(item) ? item.map((entry) => String(entry).slice(0, 500)).slice(0, 20) : typeof item === 'string' ? item.slice(0, 500) : item]))) as Record<string, unknown>; }
 async function readJson(req: IncomingMessage): Promise<unknown> { let size = 0; const chunks: Buffer[] = []; for await (const chunk of req) { const buffer = Buffer.from(chunk); size += buffer.length; if (size > MAX_BODY_BYTES) throw new HttpError(413, 'Request too large'); chunks.push(buffer); } return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); }

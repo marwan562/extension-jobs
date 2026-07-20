@@ -22,4 +22,5 @@ const openclaw = command('openclaw', ['--version']); report(openclaw.status === 
 report(existsSync('apps/openclaw-wuzzuf/openclaw.plugin.json') ? 'PASS' : 'FAIL', 'OpenClaw plugin', 'manifest present', 'Run: npm run plugin:build');
 report(process.env.COMPOSIO_API_KEY ? 'PASS' : 'WARN', 'Composio API', process.env.COMPOSIO_API_KEY ? 'configured (value redacted)' : 'not configured', 'Set COMPOSIO_API_KEY in .env; never expose it to the extension.');
 report(process.env.OPENCLAW_JOB_TOOL_TOKEN ? 'PASS' : 'WARN', 'Tool credential', process.env.OPENCLAW_JOB_TOOL_TOKEN ? 'configured (value redacted)' : 'not configured', 'Generate a unique 32+ character OPENCLAW_JOB_TOOL_TOKEN without submission scope.');
+report(process.env.COMPOSIO_WUZZUF_TOOL_TOKEN ? 'PASS' : 'WARN', 'Composio credential', process.env.COMPOSIO_WUZZUF_TOOL_TOKEN ? 'configured separately (value redacted)' : 'not configured', 'Generate a distinct 32+ character COMPOSIO_WUZZUF_TOOL_TOKEN.');
 process.exitCode = failures ? 1 : 0;

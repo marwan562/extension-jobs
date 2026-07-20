@@ -7,7 +7,7 @@ const patterns = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
   /\bsk-[A-Za-z0-9_-]{32,}\b/,
   /\bBearer\s+[A-Za-z0-9._~+\/-]{32,}/,
-  /(?:COMPOSIO_API_KEY|OPENCLAW_JOB_TOOL_TOKEN)\s*=\s*[A-Za-z0-9_-]{24,}/
+  /(?:COMPOSIO_API_KEY|OPENCLAW_JOB_TOOL_TOKEN|COMPOSIO_WUZZUF_TOOL_TOKEN)\s*=\s*[A-Za-z0-9_-]{24,}/
 ];
 const findings: string[] = [];
 for (const file of tracked.stdout.split('\0').filter(Boolean)) {

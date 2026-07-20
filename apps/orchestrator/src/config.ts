@@ -18,6 +18,7 @@ const environmentSchema = z.object({
   OPENCLAW_SESSION_KEY: z.string().default('agent:main:extension-job-copilot'),
   OPENCLAW_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(600).default(120),
   OPENCLAW_JOB_TOOL_TOKEN: z.string().min(32).optional(),
+  COMPOSIO_WUZZUF_TOOL_TOKEN: z.string().min(32).optional(),
   COMPOSIO_LINKEDIN_SEARCH_TOOL: z.string().optional(),
   COMPOSIO_LINKEDIN_SEARCH_ARGS: z.string().default('{}'),
 }).superRefine((value, context) => {

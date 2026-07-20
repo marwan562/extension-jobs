@@ -18,7 +18,7 @@ export class ComposioSessionManager {
   async tools() { this.assertReady(); const tools = await this.session.tools(); return tools.map((tool: any) => ({ name: tool.name, description: tool.description, inputParameters: tool.inputParameters })); }
   async execute(toolSlug: string, arguments_: Record<string, unknown>) { this.assertReady(); return this.session.execute(toolSlug, arguments_); }
   private assertReady() { if (!this.session) throw new Error('Composio session host is not initialized.'); }
-  private wuzzufToolkit() { return this.config.toolkits.includes('wuzzuf') ? createWuzzufToolkit({ baseUrl: this.config.orchestratorUrl, pairingCode: this.config.pairingCode }) : undefined; }
+  private wuzzufToolkit() { return this.config.toolkits.includes('wuzzuf') ? createWuzzufToolkit({ baseUrl: this.config.orchestratorUrl, toolToken: this.config.wuzzufToolToken }) : undefined; }
   private readSessionId(): string | undefined { try { const parsed = JSON.parse(readFileSync(this.config.sessionFile, 'utf8')) as { sessionId?: unknown }; return typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined; } catch { return undefined; } }
   private persistSessionId(sessionId: string) { mkdirSync(dirname(this.config.sessionFile), { recursive: true, mode: 0o700 }); const temporary = `${this.config.sessionFile}.tmp`; writeFileSync(temporary, `${JSON.stringify({ sessionId, updatedAt: new Date().toISOString() })}\n`, { mode: 0o600 }); renameSync(temporary, this.config.sessionFile); }
 }
