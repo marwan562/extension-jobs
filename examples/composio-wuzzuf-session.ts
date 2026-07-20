@@ -10,4 +10,6 @@ const session = await composio.sessions.create(process.env.COMPOSIO_USER_ID ?? '
   experimental: { customToolkits: [createWuzzufToolkit()] }
 });
 
-process.stdout.write(`${JSON.stringify({ sessionId: session.id, customToolkits: session.customToolkits(), tools: (await session.tools()).map((tool: { name?: string; slug?: string }) => tool.name ?? tool.slug) }, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify({ sessionId: session.sessionId, customToolkits: session.customToolkits(), tools: (await session.tools()).map((tool) => tool.type === 'function' ? tool.function.name : tool.custom.name) }, null, 2)}\n`);
+
+
