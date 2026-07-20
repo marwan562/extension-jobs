@@ -8,6 +8,7 @@
 - Playwright exposes no safe CDP disconnect that is guaranteed to preserve the browser process. Shutdown intentionally avoids `browser.close()` and relies on process exit to release the transport, so a stale connection can require restarting the orchestrator.
 - The first existing Chrome browser context is used. If Chrome exposes no context, automation fails with `CHROME_CDP_NO_CONTEXT`; no incognito context is created as a fallback.
 - A running application browser page is process-local. After an orchestrator restart, the Chrome tab may remain visible and durable review/status remains available, but fill/submit requires preparing a new active session.
+- Browser operations are persisted and leased through the durable queue, but the orchestrator currently claims them inline; moving production claims into the standalone `playwright-worker` process remains an architectural migration.
 - Resume parsing is deterministic and limited to PDF/text/Markdown contact, links, and a skills line. Resume approval is explicit. Uploaded bytes remain in the local SQLite database.
 - Only verified high-confidence non-sensitive values fill automatically. Salary, sponsorship, work authorization, legal, demographic, disability, clearance, relocation, and file questions remain blocked for human review.
 - Composio custom toolkits run in the TypeScript process and are not supported through Composio MCP sessions. The SDK is experimental and its prefix/config API may change.

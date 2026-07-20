@@ -22,9 +22,9 @@ The initial implementation duplicated Zod, TypeBox, and TypeScript contracts; em
 1. Establish canonical runtime contracts, security helpers, explicit migrations, durable queue, immutable profile snapshots, and workflow rules.
 2. Route state transitions and approval consumption through transactional repositories while preserving the current browser vertical slice.
 3. Move Wuzzuf browser behavior behind a central session manager and normalized form fingerprints.
-4. Finish scoped client enrollment, scheduler execution, and adapter schema generation.
+4. Finish adapter schema generation and move inline browser claims into the standalone worker process.
 5. Expand fixture/e2e coverage and remove legacy application-state compatibility only after stored records migrate.
 
 ## Known baseline limitations
 
-The browser worker is still in-process for production Wuzzuf calls; scheduling is not yet a continuously running durable dispatcher; historical application rows use legacy state names; schema equivalence is tested at the tool-name boundary rather than generated from one schema; and live Wuzzuf behavior necessarily requires user-controlled Chrome and manual completion of login/security checks.
+Browser jobs are durably recorded and leased but still claimed in-process by the orchestrator; the standalone production worker split remains incomplete. The orchestrator now runs a persistent timezone-aware campaign scheduler. Historical application rows use legacy state names, schema equivalence is tested at the tool-name boundary rather than fully generated from one schema, and live Wuzzuf behavior necessarily requires user-controlled Chrome and manual completion of login/security checks.
