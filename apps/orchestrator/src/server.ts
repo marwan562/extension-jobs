@@ -36,7 +36,7 @@ export function createBridge(service: OrchestratorService, options: BridgeOption
       applySecurityHeaders(req, res, options.allowedOrigin);
       if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, emergencyStop: service.emergencyStop.active });
+      if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, emergencyStop: service.emergencyStop.active, chrome: service.wuzzuf.browserStatus() });
       if (req.method === 'POST' && url.pathname === '/v1/pair') { const body = asRecord(await readJson(req)); return json(res, 200, sessions.pair(requiredString(body.code, 'code', 256))); }
       authorize(req, sessions, options.toolToken);
       const wuzzufMatch = url.pathname.match(/^\/v1\/wuzzuf\/tools\/([A-Z_]+)$/);

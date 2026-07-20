@@ -10,14 +10,47 @@ PAIRING_CODE=<random-pairing-secret>
 OPENCLAW_JOB_TOOL_TOKEN=<separate-random-backend-secret>
 JOB_SOURCE_MODE=wuzzuf
 DATA_DIR=./data
-WUZZUF_DATA_DIR=./.data/wuzzuf-browser
+CHROME_CDP_ENDPOINT=http://127.0.0.1:9222
 WUZZUF_SCREENSHOT_DIR=./.data/wuzzuf-diagnostics
-WUZZUF_HEADLESS=false
-WUZZUF_BROWSER_CHANNEL=chrome
-WUZZUF_NAVIGATION_TIMEOUT_MS=30000
+WUZZUF_NAVIGATION_TIMEOUT_MS=60000
 ```
 
 `WUZZUF_BASE_URL` is only for the local mock integration tests. Do not point automated tests at a production account.
+
+`WUZZUF_DATA_DIR`, `WUZZUF_HEADLESS`, `WUZZUF_BROWSER_CHANNEL`, and `WUZZUF_EXECUTABLE_PATH` are deprecated and unused by the production CDP flow. Isolated Chromium launch remains test-only.
+
+## Start Chrome for CDP
+
+Close any conflicting Chrome instance if necessary, then start Chrome manually. On macOS:
+
+```sh
+open -na "Google Chrome" --args \
+  --remote-debugging-port=9222
+```
+
+Recent Chrome versions can reject remote debugging against the normal default profile. In that case, use a dedicated Chrome profile and log into Wuzzuf once in that profile:
+
+```sh
+open -na "Google Chrome" --args \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.extension-jobs-chrome"
+```
+
+Linux:
+
+```sh
+google-chrome \
+  --remote-debugging-port=9222
+```
+
+Windows PowerShell:
+
+```powershell
+& "$env:ProgramFiles\Google\Chrome\Application\chrome.exe" `
+  --remote-debugging-port=9222
+```
+
+Keep the endpoint on loopback. A CDP endpoint grants control over the associated browser profile and must not be exposed to a network.
 
 ## Run and verify
 
@@ -28,10 +61,10 @@ npm run typecheck
 npm test
 npm run build
 node --experimental-strip-types apps/playwright-worker/src/main.ts
-EXTENSION_ID=<id> PAIRING_CODE=<code> OPENCLAW_JOB_TOOL_TOKEN=<token> JOB_SOURCE_MODE=wuzzuf npm start
+CHROME_CDP_ENDPOINT=http://127.0.0.1:9222 EXTENSION_ID=<id> PAIRING_CODE=<code> OPENCLAW_JOB_TOOL_TOKEN=<token> JOB_SOURCE_MODE=wuzzuf npm start
 ```
 
-Live Wuzzuf automation defaults to the installed official Google Chrome channel in visible mode so security checks can be completed manually. Set `WUZZUF_HEADLESS=true` only if Wuzzuf accepts headless traffic in your environment. First use requires a manual login: open the extension Wuzzuf tab, choose **Open Wuzzuf login**, complete Wuzzuf authentication, then check status. A login expiry returns structured `WUZZUF_LOGIN_REQUIRED`; CAPTCHA/challenge pages return `WUZZUF_CHALLENGE_REQUIRED` and require user intervention.
+`npx playwright install chromium` is needed only by isolated automated tests/mock tooling, not the production Wuzzuf flow. First use requires a manual login: open the extension Wuzzuf tab, choose **Open Wuzzuf login**, complete Wuzzuf authentication in the new tab inside the connected Chrome window, then check status. Repeated clicks reuse the application-managed login tab. A login expiry returns structured `WUZZUF_LOGIN_REQUIRED`; CAPTCHA/challenge pages return `WUZZUF_CHALLENGE_REQUIRED` or `manual_verification_required`, remain open, and require user intervention before retrying.
 
 ## Composio custom toolkit
 

@@ -4,33 +4,32 @@ import { DevelopmentProvider, OpenClawGatewayProvider } from '../../../packages/
 import { Store } from './store.ts';
 import { OrchestratorService } from './service.ts';
 import { createBridge } from './server.ts';
+import { loadOrchestratorConfig } from './config.ts';
 
-const env = process.env; const port = Number(env.PORT ?? 18790);
-const wuzzufAdapter = new WuzzufAdapter();
+const config = loadOrchestratorConfig(process.env);
+const wuzzufAdapter = new WuzzufAdapter({ cdpEndpoint: config.CHROME_CDP_ENDPOINT, navigationTimeoutMs: config.WUZZUF_NAVIGATION_TIMEOUT_MS });
 const sources: JobSource[] = [];
-if (env.JOB_SOURCE_MODE === 'development' || !env.JOB_SOURCE_MODE) {
+if (config.JOB_SOURCE_MODE === 'development') {
   sources.push(new FixtureJobSource());
 } else {
-  const modes = env.JOB_SOURCE_MODE.split(',');
+  const modes = config.JOB_SOURCE_MODE.split(',');
   if (modes.includes('fixture')) sources.push(new FixtureJobSource());
   if (modes.includes('wuzzuf') || modes.includes('multi')) sources.push(new WuzzufJobSource(wuzzufAdapter));
   if (modes.includes('indeed') || modes.includes('multi')) sources.push(new IndeedJobSource());
   if (modes.includes('composio') || modes.includes('multi')) {
-    if (env.COMPOSIO_LINKEDIN_SEARCH_TOOL) {
-      sources.push(new ComposioLinkedInSource(env.COMPOSIO_LINKEDIN_SEARCH_TOOL, JSON.parse(env.COMPOSIO_LINKEDIN_SEARCH_ARGS ?? '{}') as Record<string, unknown>));
+    if (config.COMPOSIO_LINKEDIN_SEARCH_TOOL) {
+      sources.push(new ComposioLinkedInSource(config.COMPOSIO_LINKEDIN_SEARCH_TOOL, JSON.parse(config.COMPOSIO_LINKEDIN_SEARCH_ARGS) as Record<string, unknown>));
     }
   }
 }
 const source = sources.length === 1 ? sources[0]! : (sources.length === 0 ? new FixtureJobSource() : new MultiJobSource(sources));
 
-const provider = env.OPENCLAW_MODE === 'development' ? new DevelopmentProvider() : new OpenClawGatewayProvider({ agentId: env.OPENCLAW_AGENT_ID ?? 'main', sessionKey: env.OPENCLAW_SESSION_KEY ?? 'agent:main:extension-job-copilot', timeoutSeconds: Number(env.OPENCLAW_TIMEOUT_SECONDS ?? 120) });
-const store = new Store(resolve(env.DATA_DIR ?? './data', 'jobs.sqlite'));
+const provider = config.OPENCLAW_MODE === 'development' ? new DevelopmentProvider() : new OpenClawGatewayProvider({ agentId: config.OPENCLAW_AGENT_ID, sessionKey: config.OPENCLAW_SESSION_KEY, timeoutSeconds: config.OPENCLAW_TIMEOUT_SECONDS });
+const store = new Store(resolve(config.DATA_DIR, 'jobs.sqlite'));
 const service = new OrchestratorService(store, source, provider, wuzzufAdapter);
-const extensionId = env.EXTENSION_ID; const devOrigin = env.DEV_ORIGIN;
-if (!extensionId && !devOrigin) throw new Error('Set EXTENSION_ID or a loopback DEV_ORIGIN');
-const allowedOrigin = extensionId ? `chrome-extension://${extensionId}` : devOrigin!;
-const pairingCode = env.PAIRING_CODE ?? crypto.randomUUID();
-if (!env.PAIRING_CODE) process.stderr.write(`One-time pairing code: ${pairingCode}\n`);
-const server = createBridge(service, { allowedOrigin, pairingCode, sessionTtlMs: Number(env.SESSION_TTL_SECONDS ?? 900) * 1000, ...(env.OPENCLAW_JOB_TOOL_TOKEN ? { toolToken: env.OPENCLAW_JOB_TOOL_TOKEN } : {}) });
-server.listen(port, '127.0.0.1', () => process.stdout.write(`Orchestrator listening on http://127.0.0.1:${port}\n`));
+const allowedOrigin = config.EXTENSION_ID ? `chrome-extension://${config.EXTENSION_ID}` : config.DEV_ORIGIN!;
+const pairingCode = config.PAIRING_CODE ?? crypto.randomUUID();
+if (!config.PAIRING_CODE) process.stderr.write(`One-time pairing code: ${pairingCode}\n`);
+const server = createBridge(service, { allowedOrigin, pairingCode, sessionTtlMs: config.SESSION_TTL_SECONDS * 1000, ...(config.OPENCLAW_JOB_TOOL_TOKEN ? { toolToken: config.OPENCLAW_JOB_TOOL_TOKEN } : {}) });
+server.listen(config.PORT, '127.0.0.1', () => process.stdout.write(`Orchestrator listening on http://127.0.0.1:${config.PORT}\n`));
 for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, async () => { server.close(); await service.wuzzuf.close(); store.close(); process.exit(0); });

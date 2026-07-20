@@ -66,6 +66,7 @@ export class WuzzufToolService {
 
   async cancel(applicationId: string) { const record = this.application(applicationId); if (terminal(record.state)) return this.status(applicationId); this.controllers.get(applicationId)?.abort(new Error('Application cancelled')); if (record.adapterSessionId) await this.adapter.cancel(record.adapterSessionId); advance(record, ['CANCELLED']); record.submissionAllowed = false; this.save(record); this.answers.audit(record.correlationId, 'wuzzuf.application_cancelled', {}, record.id); return this.status(record.id); }
   async authStatus() { const correlationId = randomUUID(); const status = await this.adapter.authenticationStatus(this.safety.signal); return { correlationId, ...status }; }
+  browserStatus() { return this.adapter.browserStatus(); }
   async openLogin() { const correlationId = randomUUID(); const result = await this.adapter.openLogin(); this.answers.audit(correlationId, 'wuzzuf.login_browser_opened', {}); return { correlationId, ...result }; }
   async close() { for (const controller of this.controllers.values()) controller.abort(); this.controllers.clear(); await this.adapter.close(); }
 

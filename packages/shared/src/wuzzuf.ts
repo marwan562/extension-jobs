@@ -66,7 +66,7 @@ export class WuzzufToolError extends Error {
   readonly status: number;
   readonly retryable: boolean;
   readonly diagnostics?: Record<string, unknown>;
-  constructor(code: string, message: string, options: { status?: number; retryable?: boolean; diagnostics?: Record<string, unknown> } = {}) {
-    super(message); this.name = 'WuzzufToolError'; this.code = code; this.status = options.status ?? 400; this.retryable = options.retryable ?? false; if (options.diagnostics) this.diagnostics = options.diagnostics;
+  constructor(code: string, message: string, options: { status?: number; retryable?: boolean; diagnostics?: Record<string, unknown>; cause?: unknown } = {}) {
+    super(message, options.cause === undefined ? undefined : { cause: options.cause }); this.name = 'WuzzufToolError'; this.code = code; this.status = options.status ?? 400; this.retryable = options.retryable ?? false; if (options.diagnostics) this.diagnostics = options.diagnostics;
   }
 }

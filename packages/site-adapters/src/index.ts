@@ -1,5 +1,6 @@
 import type { FieldAnswer, Job, RawJob } from '../../shared/src/domain.ts';
 export { WuzzufAdapter, WuzzufJobSource, type WuzzufAdapterOptions } from './wuzzuf-adapter.ts';
+export { ChromeCdpManager, chromeConnectionMessage, type BrowserConnectionManager, type ChromeCdpManagerOptions } from './chrome-cdp-manager.ts';
 export { normalizeWuzzufUrl, sourceIdFromWuzzufUrl, parseWuzzufSearchHtml, parseWuzzufJobHtml, detectWuzzufPageState } from './wuzzuf-parser.ts';
 
 export interface AdapterContext { correlationId: string; dryRun: boolean; signal: AbortSignal }

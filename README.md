@@ -1,27 +1,27 @@
 # OpenClaw Job Automation
 
-Local-first, review-first job discovery and application automation for OpenClaw, Composio, and Chrome. Wuzzuf is implemented once: both agent integrations call the authenticated loopback orchestrator, which owns policy, persistence, scoring, auditing, and the persistent Playwright adapter.
+Local-first, review-first job discovery and application automation for OpenClaw, Composio, and Chrome. Wuzzuf is implemented once: both agent integrations call the authenticated loopback orchestrator, which owns policy, persistence, scoring, auditing, and a Playwright adapter connected to the user's existing Google Chrome profile over CDP.
 
 ```text
 OpenClaw job_automation ─┐
-                        ├─> 127.0.0.1 orchestrator -> WuzzufToolService -> WuzzufAdapter -> persistent browser -> Wuzzuf
+                        ├─> 127.0.0.1 orchestrator -> WuzzufToolService -> WuzzufAdapter -> existing Chrome over CDP -> Wuzzuf
 Composio wuzzuf toolkit ┘
 ```
 
 ## Quick start
 
-Requires Node.js 24+ and a Playwright Chromium installation.
+Requires Node.js 24+ and Google Chrome. Start Chrome with remote debugging before the orchestrator:
 
 ```sh
 npm install
-npx playwright install chromium
 npm run typecheck
 npm test
 npm run build
+open -na "Google Chrome" --args --remote-debugging-port=9222
 EXTENSION_ID=<chrome-extension-id> PAIRING_CODE=<random-secret> OPENCLAW_JOB_TOOL_TOKEN=<random-secret> JOB_SOURCE_MODE=wuzzuf npm start
 ```
 
-Open the extension's Wuzzuf view and choose **Open Wuzzuf login**. Sign in manually in the dedicated browser. The project never requests or stores a plaintext Wuzzuf password; Playwright profile state stays under `WUZZUF_DATA_DIR` (default `.data/wuzzuf-browser`) and is git-ignored.
+Set `CHROME_CDP_ENDPOINT=http://127.0.0.1:9222` (the default). Open the extension's Wuzzuf view and choose **Open Wuzzuf login**. A new managed tab appears in that Chrome window and shares its cookies and profile. The project never requests or returns Wuzzuf passwords, cookies, or profile data. `WUZZUF_DATA_DIR` is unused in production CDP mode.
 
 ## Wuzzuf actions
 
