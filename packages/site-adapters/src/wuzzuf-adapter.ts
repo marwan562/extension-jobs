@@ -1,7 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Page } from 'playwright';
+import type { Page, Locator } from 'playwright';
 import type { FieldAnswer, Job, RawJob } from '../../shared/src/domain.ts';
 import { normalizeJob } from '../../shared/src/jobs.ts';
 import { WuzzufToolError, type WuzzufSearchInput } from '../../shared/src/wuzzuf.ts';
@@ -220,7 +220,17 @@ export class WuzzufAdapter implements JobSiteAdapter {
           await locator.selectOption({ label: answer.value as string });
         } else if (type === 'checkbox' || type === 'radio') {
           if (answer.value && /^(yes|true|checked)$/i.test(answer.value)) {
-            await locator.check({ force: true });
+            await locator.evaluate((el) => {
+              const input = el as HTMLInputElement;
+              const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked')?.set;
+              if (valueSetter) {
+                valueSetter.call(input, true);
+              } else {
+                input.checked = true;
+              }
+              input.dispatchEvent(new Event('click', { bubbles: true }));
+              input.dispatchEvent(new Event('change', { bubbles: true }));
+            });
           }
         } else if (answer.value) {
           await locator.fill(answer.value as string);
@@ -289,9 +299,9 @@ export class WuzzufAdapter implements JobSiteAdapter {
   private async withDiagnostics(error: unknown, page: Page, operation: string): Promise<Error> { const safeError = this.browserError(error, page); if (safeError instanceof WuzzufToolError && safeError.diagnostics) return safeError; let screenshot: string | undefined; try { if (!page.isClosed()) { await mkdir(this.screenshotDir, { recursive: true }); screenshot = `${operation}-${Date.now()}.png`; await page.screenshot({ path: resolve(this.screenshotDir, screenshot), fullPage: true }); } } catch { /* diagnostics must not mask the original error */ } if (safeError instanceof WuzzufToolError) return new WuzzufToolError(safeError.code, safeError.message, { status: safeError.status, retryable: safeError.retryable, diagnostics: { ...(safeError.diagnostics ?? {}), operation, ...(screenshot ? { screenshot } : {}) }, cause: safeError.cause }); return new WuzzufToolError('WUZZUF_BROWSER_ERROR', 'The Wuzzuf browser operation failed. Check the open Chrome tab and retry.', { status: 502, retryable: true, diagnostics: { operation, ...(screenshot ? { screenshot } : {}) }, cause: safeError }); }
 }
 
-async function firstExisting(page: Page, selectors: readonly string[]) {
+async function firstExisting(root: Page | Locator, selectors: readonly string[]) {
   for (const selector of selectors) {
-    const locator = page.locator(selector);
+    const locator = root.locator(selector);
     const count = await locator.count();
     for (let i = 0; i < count; i++) {
       const item = locator.nth(i);
@@ -301,7 +311,7 @@ async function firstExisting(page: Page, selectors: readonly string[]) {
     }
   }
   for (const selector of selectors) {
-    const locator = page.locator(selector).first();
+    const locator = root.locator(selector).first();
     if (await locator.count()) return locator;
   }
   return undefined;

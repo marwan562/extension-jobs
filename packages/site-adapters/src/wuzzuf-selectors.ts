@@ -33,10 +33,11 @@ export const wuzzufSelectors = {
     'form:not([action*="search"])'
   ],
   submitButton: [
-    'button[type="submit"]',
     'button:has-text("Submit application")',
     'button:has-text("Submit Application")',
     'button:has-text("Submit")',
-    'button:has-text("Apply")'
+    'button:has-text("Apply")',
+    'form[action="#"] button[type="submit"]',
+    'button[type="submit"]:not(form[role="search"] button)'
   ]
 } as const;
