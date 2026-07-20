@@ -12,7 +12,8 @@ JOB_SOURCE_MODE=wuzzuf
 DATA_DIR=./data
 WUZZUF_DATA_DIR=./.data/wuzzuf-browser
 WUZZUF_SCREENSHOT_DIR=./.data/wuzzuf-diagnostics
-WUZZUF_HEADLESS=true
+WUZZUF_HEADLESS=false
+WUZZUF_BROWSER_CHANNEL=chrome
 WUZZUF_NAVIGATION_TIMEOUT_MS=30000
 ```
 
@@ -30,7 +31,7 @@ node --experimental-strip-types apps/playwright-worker/src/main.ts
 EXTENSION_ID=<id> PAIRING_CODE=<code> OPENCLAW_JOB_TOOL_TOKEN=<token> JOB_SOURCE_MODE=wuzzuf npm start
 ```
 
-First use requires a manual login: open the extension Wuzzuf tab, choose **Open Wuzzuf login**, complete Wuzzuf authentication, then check status. A login expiry returns structured `WUZZUF_LOGIN_REQUIRED`; CAPTCHA/challenge pages return `WUZZUF_CHALLENGE_REQUIRED` and require user intervention.
+Live Wuzzuf automation defaults to the installed official Google Chrome channel in visible mode so security checks can be completed manually. Set `WUZZUF_HEADLESS=true` only if Wuzzuf accepts headless traffic in your environment. First use requires a manual login: open the extension Wuzzuf tab, choose **Open Wuzzuf login**, complete Wuzzuf authentication, then check status. A login expiry returns structured `WUZZUF_LOGIN_REQUIRED`; CAPTCHA/challenge pages return `WUZZUF_CHALLENGE_REQUIRED` and require user intervention.
 
 ## Composio custom toolkit
 

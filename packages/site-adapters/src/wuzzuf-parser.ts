@@ -25,6 +25,7 @@ export function sourceIdFromWuzzufUrl(value: string, base?: string): string {
 export function parseWuzzufSearchHtml(html: string, base = 'https://wuzzuf.net', discoveredAt = new Date().toISOString()): RawJob[] {
   assertUsableLayout(html);
   const $ = load(html);
+  $('style, script').remove();
   const cards = $('[data-testid="job-card"], article, div.css-pkv5jc').filter((_, element) => $(element).find('a[href*="/jobs/p/"], a[href*="/internship/"]').length > 0);
   const jobs: RawJob[] = [];
   cards.each((_, element) => {
@@ -38,12 +39,13 @@ export function parseWuzzufSearchHtml(html: string, base = 'https://wuzzuf.net',
     const text = cleanText(card.text()).toLowerCase();
     jobs.push({ source: 'wuzzuf', sourceId: sourceIdFromWuzzufUrl(url, base), url, title, employer, location, description: snippet, requiredSkills: skills, remote: /\bremote\b|work from home/.test(text), seniority: inferExperience(text), experienceLevel: inferExperience(text), employmentType: inferEmployment(text), discoveredAt });
   });
+  if (!jobs.length && /no jobs (?:found|match)|couldn't find any jobs|0 jobs found/i.test(cleanText($.root().text()))) return [];
   if (!jobs.length) throw new WuzzufToolError('WUZZUF_UNSUPPORTED_LAYOUT', 'Wuzzuf search layout is unsupported or contains no job cards', { retryable: true });
   return jobs;
 }
 
 export function parseWuzzufJobHtml(html: string, urlValue: string, base = 'https://wuzzuf.net', discoveredAt = new Date().toISOString()): RawJob {
-  assertUsableLayout(html); const $ = load(html); const url = normalizeWuzzufUrl(urlValue, base);
+  assertUsableLayout(html); const $ = load(html); $('style, script').remove(); const url = normalizeWuzzufUrl(urlValue, base);
   const title = cleanText(firstPageText($, ['h1[data-testid="job-title"]', 'main h1', 'h1']));
   const employer = cleanText(firstPageText($, ['[data-testid="company-name"]', '[itemprop="hiringOrganization"]', 'a[href*="/company/"]']));
   const location = cleanText(firstPageText($, ['[data-testid="job-location"]', '[itemprop="jobLocation"]']));
@@ -58,7 +60,7 @@ export function parseWuzzufJobHtml(html: string, urlValue: string, base = 'https
 
 export function detectWuzzufPageState(html: string): 'ok' | 'login_required' | 'challenge' {
   const text = cleanText(load(html).root().text());
-  if (/captcha|verify you are human|unusual traffic|security check/i.test(text)) return 'challenge';
+  if (/captcha|verify you are human|performing security verification|security service to protect against malicious bots|unusual traffic|security check/i.test(text)) return 'challenge';
   if (/login required|sign in to apply/i.test(text) || /type=["']password["']/i.test(html)) return 'login_required';
   return 'ok';
 }

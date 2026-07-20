@@ -14,6 +14,7 @@ Troubleshooting:
 
 - `WUZZUF_LOGIN_REQUIRED`: reopen the login browser and authenticate.
 - `WUZZUF_CHALLENGE_REQUIRED`: complete the displayed challenge manually.
+- `WUZZUF_SEARCH_TIMEOUT`: the Wuzzuf search remained on its loading screen; finish any check in the visible official Chrome window, then retry.
 - `WUZZUF_UNSUPPORTED_LAYOUT`: inspect the local diagnostic screenshot directory and update fixtures/selectors before retrying.
 - `WUZZUF_DRY_RUN_BLOCKED`: disable dry-run before preparation and fill; changing it only at submit time is intentionally insufficient.
 - `WUZZUF_APPLICATION_SESSION_NOT_FOUND`: the orchestrator restarted or the run was cancelled; prepare a fresh review.

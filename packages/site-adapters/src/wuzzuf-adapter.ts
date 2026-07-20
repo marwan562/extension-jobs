@@ -13,6 +13,8 @@ export interface WuzzufAdapterOptions {
   dataDir?: string;
   baseUrl?: string;
   headless?: boolean;
+  browserChannel?: string;
+  executablePath?: string;
   navigationTimeoutMs?: number;
   screenshotDir?: string;
 }
@@ -34,13 +36,18 @@ export class WuzzufAdapter implements JobSiteAdapter {
   private readonly dataDir: string;
   private readonly baseUrl: string;
   private readonly headless: boolean;
+  private readonly browserChannel: string | undefined;
+  private readonly executablePath: string | undefined;
   private readonly timeoutMs: number;
   private readonly screenshotDir: string;
 
   constructor(options: WuzzufAdapterOptions = {}) {
     this.dataDir = resolve(options.dataDir ?? process.env.WUZZUF_DATA_DIR ?? '.data/wuzzuf-browser');
     this.baseUrl = new URL(options.baseUrl ?? process.env.WUZZUF_BASE_URL ?? 'https://wuzzuf.net').origin;
-    this.headless = options.headless ?? process.env.WUZZUF_HEADLESS !== 'false';
+    const liveWuzzuf = ['wuzzuf.net', 'www.wuzzuf.net'].includes(new URL(this.baseUrl).hostname.toLowerCase());
+    this.headless = options.headless ?? (process.env.WUZZUF_HEADLESS ? process.env.WUZZUF_HEADLESS !== 'false' : !liveWuzzuf);
+    this.browserChannel = options.browserChannel ?? process.env.WUZZUF_BROWSER_CHANNEL ?? (liveWuzzuf ? 'chrome' : undefined);
+    this.executablePath = options.executablePath ?? process.env.WUZZUF_EXECUTABLE_PATH;
     this.timeoutMs = options.navigationTimeoutMs ?? Number(process.env.WUZZUF_NAVIGATION_TIMEOUT_MS ?? 30_000);
     this.screenshotDir = resolve(options.screenshotDir ?? process.env.WUZZUF_SCREENSHOT_DIR ?? '.data/wuzzuf-diagnostics');
   }
@@ -77,9 +84,11 @@ export class WuzzufAdapter implements JobSiteAdapter {
       for (const location of input.locations) {
         let pageNumber = 0;
         while (jobs.length < limit && pageNumber < 10) {
-          const search = new URL('/search/jobs/', this.baseUrl); search.searchParams.set('q', query); search.searchParams.set('l', location); if (pageNumber) search.searchParams.set('start', String(pageNumber));
+          const search = new URL('/search/jobs', this.baseUrl); search.searchParams.set('q', query); search.searchParams.set('l', location); if (pageNumber) search.searchParams.set('start', String(pageNumber));
           const page = await this.newPage(this.headless); try {
-            await this.goto(page, search.href); const parsed = parseWuzzufSearchHtml(await page.content(), this.baseUrl); const before = jobs.length;
+            await this.goto(page, search.href);
+            await this.waitForSearchResults(page);
+            const parsed = parseWuzzufSearchHtml(await page.content(), this.baseUrl); const before = jobs.length;
             for (const job of parsed) {
               if (seen.has(job.sourceId) || (input.remote === true && !job.remote) || (input.experienceLevel && job.experienceLevel !== input.experienceLevel.toLowerCase()) || (input.employmentTypes?.length && !input.employmentTypes.map((value) => value.toLowerCase()).includes(job.employmentType ?? ''))) continue;
               seen.add(job.sourceId); jobs.push(job); if (jobs.length >= limit) break;
@@ -148,10 +157,21 @@ export class WuzzufAdapter implements JobSiteAdapter {
   async close(): Promise<void> { await Promise.all([...this.applications.keys()].map((id) => this.cancel(id))); await this.closePersistentContext(); }
 
   private async newPage(headless: boolean): Promise<Page> { const context = await this.context(headless); const page = await context.newPage(); page.setDefaultTimeout(this.timeoutMs); return page; }
-  private async context(headless: boolean): Promise<BrowserContext> { if (this.persistentContext && this.persistentHeadless === headless) return this.persistentContext; await this.closePersistentContext(); await mkdir(this.dataDir, { recursive: true }); this.persistentContext = await chromium.launchPersistentContext(this.dataDir, { headless, acceptDownloads: false, viewport: { width: 1440, height: 1000 } }); this.persistentHeadless = headless; return this.persistentContext; }
+  private async context(headless: boolean): Promise<BrowserContext> { if (this.persistentContext && this.persistentHeadless === headless) return this.persistentContext; await this.closePersistentContext(); await mkdir(this.dataDir, { recursive: true }); this.persistentContext = await chromium.launchPersistentContext(this.dataDir, { headless, ...(this.executablePath ? { executablePath: this.executablePath } : this.browserChannel ? { channel: this.browserChannel } : {}), acceptDownloads: false, viewport: { width: 1440, height: 1000 } }); this.persistentHeadless = headless; return this.persistentContext; }
   private async closePersistentContext(): Promise<void> { if (this.persistentContext) await this.persistentContext.close().catch(() => undefined); this.persistentContext = undefined; this.persistentHeadless = undefined; }
   private page(id: string): Page { const item = this.applications.get(id); if (!item) throw new WuzzufToolError('WUZZUF_APPLICATION_SESSION_NOT_FOUND', 'Application browser session is not active', { status: 404 }); return item.page; }
   private async goto(page: Page, value: string, signal?: AbortSignal): Promise<void> { signal?.throwIfAborted(); const onAbort = () => page.close().catch(() => undefined); signal?.addEventListener('abort', onAbort, { once: true }); try { await page.goto(normalizeWuzzufUrl(value, this.baseUrl), { waitUntil: 'domcontentloaded', timeout: this.timeoutMs }); signal?.throwIfAborted(); normalizeWuzzufUrl(page.url(), this.baseUrl); await this.assertSafePage(page); } finally { signal?.removeEventListener('abort', onAbort); } }
+  private async waitForSearchResults(page: Page): Promise<void> {
+    const result = page.locator('a[href*="/jobs/p/"], a[href*="/internship/"]').first();
+    const empty = page.getByText(/no jobs (?:found|match)|couldn't find any jobs|0 jobs found/i).first();
+    await Promise.race([
+      result.waitFor({ state: 'attached', timeout: this.timeoutMs }),
+      empty.waitFor({ state: 'attached', timeout: this.timeoutMs }),
+      page.waitForFunction(() => /captcha|verify you are human|performing security verification|security service to protect against malicious bots|unusual traffic|security check/i.test(document.body?.innerText ?? ''), undefined, { timeout: this.timeoutMs })
+    ]).catch(() => undefined);
+    await this.assertSafePage(page);
+    if (!await result.count() && !await empty.count()) throw new WuzzufToolError('WUZZUF_SEARCH_TIMEOUT', 'Wuzzuf search did not finish loading. Open the visible Wuzzuf browser, complete any security check, and retry.', { status: 504, retryable: true });
+  }
   private async assertSafePage(page: Page): Promise<void> { const state = detectWuzzufPageState(await page.content()); if (state === 'challenge') throw new WuzzufToolError('WUZZUF_CHALLENGE_REQUIRED', 'Wuzzuf requires manual challenge completion', { status: 409 }); if (state === 'login_required') throw new WuzzufToolError('WUZZUF_LOGIN_REQUIRED', 'Wuzzuf login is required', { status: 401 }); normalizeWuzzufUrl(page.url(), this.baseUrl); }
   private async withDiagnostics(error: unknown, page: Page, operation: string): Promise<Error> { if (error instanceof WuzzufToolError && error.diagnostics) return error; let screenshot: string | undefined; try { await mkdir(this.screenshotDir, { recursive: true }); screenshot = `${operation}-${Date.now()}.png`; await page.screenshot({ path: resolve(this.screenshotDir, screenshot), fullPage: true }); } catch { /* diagnostics must not mask the original error */ } if (error instanceof WuzzufToolError) return new WuzzufToolError(error.code, error.message, { status: error.status, retryable: error.retryable, diagnostics: { ...(error.diagnostics ?? {}), operation, screenshot } }); return new WuzzufToolError('WUZZUF_BROWSER_ERROR', error instanceof Error ? error.message : 'Wuzzuf browser operation failed', { status: 502, retryable: true, diagnostics: { operation, screenshot } }); }
 }
