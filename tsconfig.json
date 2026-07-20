@@ -15,6 +15,6 @@
     "rewriteRelativeImportExtensions": true,
     "types": ["node"]
   },
-  "include": ["apps/orchestrator/**/*.ts", "apps/playwright-worker/**/*.ts", "packages/**/*.ts", "tests/**/*.ts"],
+  "include": ["apps/orchestrator/**/*.ts", "apps/playwright-worker/**/*.ts", "packages/**/*.ts", "tests/**/*.ts", "examples/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }
