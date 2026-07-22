@@ -8,3 +8,6 @@ artifacts/
 .env
 *.log
 .DS_Store
+
+# ignore the file related to jobs find list (campaing.md...etc)
+wuzzuf-campaign.md
