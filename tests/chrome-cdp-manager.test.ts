@@ -86,4 +86,9 @@ test('orchestrator configuration defaults and validates the CDP endpoint at star
   const base = { DEV_ORIGIN: 'http://127.0.0.1:9999' };
   assert.equal(loadOrchestratorConfig(base).CHROME_CDP_ENDPOINT, 'http://127.0.0.1:9222');
   assert.throws(() => loadOrchestratorConfig({ ...base, CHROME_CDP_ENDPOINT: 'file:///tmp/chrome' }), /CHROME_CDP_ENDPOINT/);
+  assert.throws(() => loadOrchestratorConfig({ ...base, CHROME_CDP_ENDPOINT: 'https://remote-browser.example' }), /loopback/);
+  assert.throws(() => loadOrchestratorConfig({ ...base, CHROME_CDP_ENDPOINT: 'ws://user:pass@127.0.0.1:9222' }), /credential-free/);
+  assert.throws(() => loadOrchestratorConfig({ ...base, JOB_SOURCE_MODE: 'wuzuf' }), /Unsupported JOB_SOURCE_MODE/);
+  assert.throws(() => loadOrchestratorConfig({ ...base, JOB_SOURCE_MODE: 'composio' }), /COMPOSIO_LINKEDIN_SEARCH_TOOL/);
+  assert.equal(loadOrchestratorConfig({ ...base, JOB_SOURCE_MODE: 'wuzzuf, indeed' }).JOB_SOURCE_MODE, 'wuzzuf,indeed');
 });

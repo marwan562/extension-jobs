@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { clientScopes } from '../../../packages/shared-contracts/src/index.ts';
+import { assertLoopbackCdpUrl } from '../../../packages/security/src/index.ts';
 
-const endpoint = z.string().url().refine((value) => ['http:', 'https:', 'ws:', 'wss:'].includes(new URL(value).protocol), 'CHROME_CDP_ENDPOINT must use http, https, ws, or wss');
+const endpoint = z.string().url().refine((value) => { try { assertLoopbackCdpUrl(value); return true; } catch { return false; } }, 'CHROME_CDP_ENDPOINT must be a credential-free loopback http(s) or ws(s) URL');
+const sourceMode = z.string().transform((value, context) => { const modes = value.split(',').map((item) => item.trim()).filter(Boolean); const allowed = ['development', 'fixture', 'wuzzuf', 'indeed', 'composio', 'multi']; if (!modes.length || modes.some((mode) => !allowed.includes(mode)) || (modes.length > 1 && modes.some((mode) => mode === 'development' || mode === 'multi'))) { context.addIssue({ code: 'custom', message: `Unsupported JOB_SOURCE_MODE: ${value}` }); return z.NEVER; } return [...new Set(modes)].join(','); });
 const scopes = z.string().transform((value, context) => { const parsed = value.split(',').map((item) => item.trim()).filter(Boolean); const unsupported = parsed.filter((item) => !clientScopes.includes(item as typeof clientScopes[number])); if (unsupported.length) { context.addIssue({ code: 'custom', message: `Unsupported scopes: ${unsupported.join(', ')}` }); return z.NEVER; } return parsed as Array<typeof clientScopes[number]>; });
 
 const environmentSchema = z.object({
@@ -11,7 +13,7 @@ const environmentSchema = z.object({
   PAIRING_CODE: z.string().min(8).optional(),
   SESSION_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(900),
   DATA_DIR: z.string().min(1).default('./data'),
-  JOB_SOURCE_MODE: z.string().default('development'),
+  JOB_SOURCE_MODE: sourceMode.default('development'),
   CHROME_CDP_ENDPOINT: endpoint.default('http://127.0.0.1:9222'),
   WUZZUF_NAVIGATION_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(60_000),
   WUZZUF_USER_ID: z.string().min(1).max(100).default('local-user'),
@@ -27,6 +29,7 @@ const environmentSchema = z.object({
   COMPOSIO_LINKEDIN_SEARCH_ARGS: z.string().default('{}'),
 }).superRefine((value, context) => {
   if (!value.EXTENSION_ID && !value.DEV_ORIGIN) context.addIssue({ code: 'custom', message: 'Set EXTENSION_ID or a loopback DEV_ORIGIN' });
+  if (typeof value.JOB_SOURCE_MODE === 'string' && (value.JOB_SOURCE_MODE === 'multi' || value.JOB_SOURCE_MODE.split(',').includes('composio')) && !value.COMPOSIO_LINKEDIN_SEARCH_TOOL) context.addIssue({ code: 'custom', path: ['COMPOSIO_LINKEDIN_SEARCH_TOOL'], message: 'Required when JOB_SOURCE_MODE includes composio' });
   try { JSON.parse(value.COMPOSIO_LINKEDIN_SEARCH_ARGS); } catch { context.addIssue({ code: 'custom', path: ['COMPOSIO_LINKEDIN_SEARCH_ARGS'], message: 'COMPOSIO_LINKEDIN_SEARCH_ARGS must be valid JSON' }); }
 });
 

@@ -4,8 +4,9 @@ export { WuzzufAdapter, WuzzufJobSource, type WuzzufAdapterOptions } from './wuz
 export { ChromeCdpManager, chromeConnectionMessage, type BrowserConnectionManager, type ChromeCdpManagerOptions } from './chrome-cdp-manager.ts';
 export { normalizeWuzzufUrl, sourceIdFromWuzzufUrl, parseWuzzufSearchHtml, parseWuzzufJobHtml, detectWuzzufPageState } from './wuzzuf-parser.ts';
 
-export interface AdapterContext { correlationId: string; dryRun: boolean; signal: AbortSignal }
+export interface AdapterContext { correlationId: string; dryRun: boolean; signal: AbortSignal; onSubmitStarted?: () => void }
 export interface FormField { id: string; label: string; type: 'text' | 'email' | 'tel' | 'select' | 'radio' | 'checkbox' | 'file'; required: boolean; options?: string[] }
+export interface FormControlValue { id: string; type: FormField['type']; value: string }
 export interface ApprovedFile { id: string; path?: string; content?: Uint8Array; sourceName?: string; approved: boolean }
 export interface JobSiteAdapter {
   id: string;

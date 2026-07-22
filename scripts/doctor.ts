@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
@@ -11,8 +11,8 @@ const reachable = async (url: string) => { try { const response = await fetch(ur
 
 const major = Number(process.versions.node.split('.')[0]); report(major >= 24 ? 'PASS' : 'FAIL', 'Node', process.version, 'Install Node.js 24 or newer.');
 report(existsSync('node_modules') ? 'PASS' : 'FAIL', 'Packages', existsSync('node_modules') ? 'installed' : 'missing', 'Run: npm install');
-report(existsSync('.env') ? 'PASS' : 'WARN', 'Environment', existsSync('.env') ? '.env present (values redacted)' : '.env missing', 'Copy .env.example to .env and fill local secret values.');
-const dataDir = resolve(process.env.DATA_DIR ?? 'data'); report(existsSync(dataDir) ? 'PASS' : 'WARN', 'Data directory', existsSync(dataDir) ? 'available' : 'will be created', `Create: mkdir -p ${dataDir}`);
+const envPrivate = existsSync('.env') && (statSync('.env').mode & 0o077) === 0; report(!existsSync('.env') ? 'WARN' : envPrivate ? 'PASS' : 'FAIL', 'Environment', !existsSync('.env') ? '.env missing' : envPrivate ? '.env present with private permissions (values redacted)' : '.env is readable by group or other users', !existsSync('.env') ? 'Copy .env.example to .env and fill local secret values.' : 'Run: chmod 600 .env');
+const dataDir = resolve(process.env.DATA_DIR ?? 'data'); const dataPrivate = existsSync(dataDir) && (statSync(dataDir).mode & 0o077) === 0; report(!existsSync(dataDir) ? 'WARN' : dataPrivate ? 'PASS' : 'FAIL', 'Data directory', !existsSync(dataDir) ? 'will be created' : dataPrivate ? 'available with private permissions' : 'readable by group or other users', !existsSync(dataDir) ? `Create: mkdir -m 700 -p ${dataDir}` : `Run: chmod 700 ${dataDir}`);
 const database = resolve(dataDir, 'jobs.sqlite');
 if (existsSync(database)) { try { const db = new DatabaseSync(database, { readOnly: true }); const migration = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='schema_migrations'").get(); db.close(); report(migration ? 'PASS' : 'WARN', 'Database', migration ? 'available; migrations initialized' : 'available; migration runs at orchestrator startup', 'Run: npm run dev:orchestrator'); } catch { report('FAIL', 'Database', 'cannot be opened', 'Check data directory permissions.'); } } else report('WARN', 'Database', 'not created yet', 'Run: npm run dev:orchestrator');
 report(await reachable('http://127.0.0.1:18790/health/live') ? 'PASS' : 'WARN', 'Orchestrator', 'port 18790 ' + (await reachable('http://127.0.0.1:18790/health/live') ? 'ready' : 'not running'), 'Run: npm run dev:orchestrator');

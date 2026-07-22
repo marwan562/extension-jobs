@@ -76,6 +76,7 @@ export interface PreparedApplicationRecord {
   adapterSessionId?: string;
   reviewRevision?: string;
   formFingerprint?: FormFingerprint;
+  formValueHash?: string;
 }
 
 export class WuzzufToolError extends Error {

@@ -23,7 +23,8 @@ if (config.JOB_SOURCE_MODE === 'development') {
     }
   }
 }
-const source = sources.length === 1 ? sources[0]! : (sources.length === 0 ? new FixtureJobSource() : new MultiJobSource(sources));
+if (sources.length === 0) throw new Error(`JOB_SOURCE_MODE ${config.JOB_SOURCE_MODE} did not configure any job source`);
+const source = sources.length === 1 ? sources[0]! : new MultiJobSource(sources);
 
 const provider = config.OPENCLAW_MODE === 'development' ? new DevelopmentProvider() : new OpenClawGatewayProvider({ agentId: config.OPENCLAW_AGENT_ID, sessionKey: config.OPENCLAW_SESSION_KEY, timeoutSeconds: config.OPENCLAW_TIMEOUT_SECONDS });
 const store = new Store(resolve(config.DATA_DIR, 'jobs.sqlite'));

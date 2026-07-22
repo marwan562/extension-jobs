@@ -41,7 +41,9 @@ export class OrchestratorService {
         if (!this.store.saveJob(job)) { this.audit(correlationId, 'job.duplicate', { fingerprint: job.fingerprint }); continue; }
         if (job.matchScore < campaign.minimumMatchScore) { this.audit(correlationId, 'job.skipped', { score: job.matchScore, reason: 'below_threshold' }); continue; }
         if (campaign.executionMode === 'research_only') { this.audit(correlationId, 'job.selected_research_only', { jobId: job.id, score: job.matchScore }); continue; }
-        const id = randomUUID(); this.store.createApplication(id, job.id, { campaignId: campaign.id });
+        if (applications.length >= campaign.maxApplicationsPerRun) { this.audit(correlationId, 'job.skipped', { jobId: job.id, reason: 'per_run_limit' }); continue; }
+        if (!this.store.reserveCampaignApplication(campaign.id, campaignDayKey(campaign.timezone ?? campaign.schedule?.timezone ?? 'Africa/Cairo'), campaign.maxApplicationsPerDay)) { this.audit(correlationId, 'job.skipped', { jobId: job.id, reason: 'daily_limit' }); continue; }
+        const id = randomUUID(); this.store.createApplication(id, job.id, { campaignId: campaign.id, createdAt: new Date().toISOString() });
         this.store.transition(id, 'NORMALIZED'); this.store.transition(id, 'DEDUPLICATED'); this.store.transition(id, 'SCORED'); this.store.transition(id, 'SELECTED');
         this.store.transition(id, 'APPLICATION_STARTED'); this.store.transition(id, 'QUESTIONS_EXTRACTED');
         const fields = ['Email address', 'Phone number', 'Will you require visa sponsorship?', 'Expected salary'];
@@ -59,3 +61,5 @@ export class OrchestratorService {
   async prepareQuestions(labels: string[], profileId?: string): Promise<FieldAnswer[]> { const profile = profileId ? this.store.getProfile(profileId) : this.store.getProfile(this.settings.activeProfileId ?? '') ?? this.store.listProfiles()[0]; if (!profile) throw new Error('Import a resume first'); const answers: FieldAnswer[] = []; for (const label of labels) { const grounded = prepareAnswer(label, profile, this.settings.answerModel); if (grounded.value) { answers.push(grounded); continue; } let value = ''; for await (const chunk of this.provider.streamChat({ model: this.settings.answerModel, messages: [{ role: 'system', content: `Answer job application questions using only these facts. If unsupported, return exactly UNKNOWN. Maximum ${this.settings.maximumAnswerLength} characters.\n${this.profileContext(profile.id)}` }, { role: 'user', content: label }], signal: this.emergencyStop.signal })) value += chunk; value = value.trim().slice(0, this.settings.maximumAnswerLength); answers.push({ ...grounded, value: value === 'UNKNOWN' ? '' : value, confidence: 0.5, confirmationRequired: true, reason: value === 'UNKNOWN' ? 'No verified fact supports this answer' : 'Model-generated professional draft requires confirmation' }); } return answers; }
   discoverModels() { return this.provider.discoverModels(); }
 }
+
+function campaignDayKey(timezone: string, date = new Date()): string { const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date); const value = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${value.year}-${value.month}-${value.day}`; }

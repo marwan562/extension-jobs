@@ -1,5 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { WuzzufToolError } from '../../shared/src/wuzzuf.ts';
+import { assertLoopbackCdpUrl } from '../../security/src/index.ts';
 
 const DEFAULT_CDP_ENDPOINT = 'http://127.0.0.1:9222';
 const DEFAULT_NAVIGATION_TIMEOUT_MS = 60_000;
@@ -28,7 +29,7 @@ export class ChromeCdpManager implements BrowserConnectionManager {
   private readonly connectBrowser: (endpoint: string) => Promise<Browser>;
 
   constructor(options: ChromeCdpManagerOptions = {}) {
-    this.endpoint = options.endpoint ?? process.env.CHROME_CDP_ENDPOINT ?? DEFAULT_CDP_ENDPOINT;
+    const endpoint = options.endpoint ?? process.env.CHROME_CDP_ENDPOINT ?? DEFAULT_CDP_ENDPOINT; assertLoopbackCdpUrl(endpoint); this.endpoint = endpoint;
     this.navigationTimeoutMs = options.navigationTimeoutMs ?? Number(process.env.WUZZUF_NAVIGATION_TIMEOUT_MS ?? DEFAULT_NAVIGATION_TIMEOUT_MS);
     this.connectBrowser = options.connectOverCDP ?? ((endpoint) => chromium.connectOverCDP(endpoint));
   }

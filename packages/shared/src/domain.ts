@@ -51,6 +51,7 @@ export interface JobCampaign {
   allowedSites: string[];
   maxApplicationsPerRun: number;
   maxApplicationsPerDay: number;
+  timezone?: string;
   schedule?: Schedule;
   executionMode: ExecutionMode;
   profileId: string;

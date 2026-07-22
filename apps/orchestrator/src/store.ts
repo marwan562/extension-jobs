@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
-import { createHash } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { chmodSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AgentSettings, ApplicationState, AuditEvent, CandidateProfile, Job, JobCampaign } from '../../../packages/shared/src/domain.ts';
 import type { ApprovalRequestRecord, PreparedApplicationRecord, WuzzufConnection } from '../../../packages/shared/src/wuzzuf.ts';
@@ -12,8 +12,10 @@ import { secureHashEquals } from '../../../packages/security/src/index.ts';
 
 export class Store {
   private readonly db: DatabaseSync;
+  private readonly lockOwner = randomUUID();
+  private readonly lockLeaseMs: number;
   readonly queue: DurableQueue;
-  constructor(path: string) { mkdirSync(dirname(path), { recursive: true }); this.db = new DatabaseSync(path); this.migrate(); this.queue = new DurableQueue(this.db); }
+  constructor(path: string, options: { lockLeaseMs?: number } = {}) { const directory = dirname(path); mkdirSync(directory, { recursive: true, mode: 0o700 }); chmodSync(directory, 0o700); this.db = new DatabaseSync(path); chmodSync(path, 0o600); this.lockLeaseMs = options.lockLeaseMs ?? 5 * 60_000; this.migrate(); for (const candidate of [path, `${path}-wal`, `${path}-shm`]) if (existsSync(candidate)) chmodSync(candidate, 0o600); this.queue = new DurableQueue(this.db); }
   private migrate(): void {
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
       CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -22,13 +24,19 @@ export class Store {
       CREATE TABLE IF NOT EXISTS applications (id TEXT PRIMARY KEY, job_id TEXT NOT NULL, state TEXT NOT NULL, submission_key TEXT UNIQUE, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY, correlation_id TEXT NOT NULL, application_id TEXT, at TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS resume_files (id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, source_name TEXT NOT NULL, content BLOB NOT NULL, created_at TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS locks (key TEXT PRIMARY KEY, acquired_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS locks (key TEXT PRIMARY KEY, acquired_at TEXT NOT NULL, owner TEXT, expires_at TEXT);
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS wuzzuf_connections (user_id TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS approval_requests (id TEXT PRIMARY KEY, application_id TEXT NOT NULL, binding_hash TEXT NOT NULL, status TEXT NOT NULL, expires_at TEXT NOT NULL, data TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS operation_idempotency (operation TEXT NOT NULL, key TEXT NOT NULL, request_hash TEXT NOT NULL, status TEXT NOT NULL, response TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(operation, key));
       CREATE INDEX IF NOT EXISTS audit_correlation_idx ON audit_events(correlation_id, at);`);
     applyCoreMigrations(this.db);
+    const lockColumns = new Set((this.db.prepare('PRAGMA table_info(locks)').all() as Array<{ name: string }>).map((column) => column.name));
+    if (!lockColumns.has('owner')) this.db.exec('ALTER TABLE locks ADD COLUMN owner TEXT');
+    if (!lockColumns.has('expires_at')) this.db.exec('ALTER TABLE locks ADD COLUMN expires_at TEXT');
+    this.db.prepare("UPDATE locks SET owner=COALESCE(NULLIF(owner,''),'legacy'), expires_at=COALESCE(NULLIF(expires_at,''),acquired_at)").run();
+    this.db.prepare('DELETE FROM locks WHERE expires_at<=?').run(new Date().toISOString());
+    this.db.exec('CREATE TABLE IF NOT EXISTS campaign_daily_usage (campaign_id TEXT NOT NULL, day_key TEXT NOT NULL, count INTEGER NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(campaign_id,day_key));');
   }
   saveProfile(profile: CandidateProfile): void {
     const factsHash = hashProfileFacts(profile.facts); const versionKey = createHash('sha256').update(`${factsHash}:${JSON.stringify(profile.cvVariants)}`).digest('hex'); const existing = this.db.prepare('SELECT id FROM profile_versions WHERE profile_id=? AND facts_hash=? ORDER BY version DESC LIMIT 1').get(profile.id, versionKey) as { id: string } | undefined;
@@ -77,9 +85,10 @@ export class Store {
   applicationTimeline(applicationId: string): AuditEvent[] { return (this.db.prepare('SELECT data FROM audit_events WHERE application_id=? ORDER BY at').all(applicationId) as Array<{ data: string }>).map((row) => JSON.parse(row.data) as AuditEvent); }
   health(): { ok: true; migrationVersion: number } { const row = this.db.prepare('SELECT COALESCE(MAX(version),0) version FROM schema_migrations').get() as { version: number }; this.db.prepare('SELECT 1').get(); return { ok: true, migrationVersion: row.version }; }
   enrollClient(id: string, name: string, token: string, scopes: readonly ClientScope[], expiresAt?: string): void { const now = new Date().toISOString(); const tokenId = createHash('sha256').update(`client:${id}`).digest('hex'); this.db.prepare('INSERT INTO clients VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name').run(id, name, now); this.db.prepare('INSERT INTO auth_tokens VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET token_hash=excluded.token_hash,scopes=excluded.scopes,expires_at=excluded.expires_at,revoked_at=NULL').run(tokenId, id, createHash('sha256').update(token).digest('hex'), JSON.stringify(scopes), expiresAt ?? null, null, now); }
-  authorizeClient(id: string, token: string, requiredScope?: ClientScope): boolean { const row = this.db.prepare('SELECT token_hash,scopes,expires_at,revoked_at FROM auth_tokens WHERE client_id=? ORDER BY created_at DESC LIMIT 1').get(id) as { token_hash: string; scopes: string; expires_at: string | null; revoked_at: string | null } | undefined; if (!row || row.revoked_at || (row.expires_at && Date.parse(row.expires_at) <= Date.now()) || !secureHashEquals(token, row.token_hash)) return false; const scopes = JSON.parse(row.scopes) as ClientScope[]; return !requiredScope || scopes.includes(requiredScope); }
-  acquireLock(key: string): boolean { try { this.db.prepare('INSERT INTO locks VALUES (?, ?)').run(key, new Date().toISOString()); return true; } catch { return false; } }
-  releaseLock(key: string): void { this.db.prepare('DELETE FROM locks WHERE key=?').run(key); }
+  authorizeClient(id: string, token: string, requiredScope?: ClientScope | readonly ClientScope[]): boolean { const row = this.db.prepare('SELECT token_hash,scopes,expires_at,revoked_at FROM auth_tokens WHERE client_id=? ORDER BY created_at DESC LIMIT 1').get(id) as { token_hash: string; scopes: string; expires_at: string | null; revoked_at: string | null } | undefined; if (!row || row.revoked_at || (row.expires_at && Date.parse(row.expires_at) <= Date.now()) || !secureHashEquals(token, row.token_hash)) return false; const scopes = JSON.parse(row.scopes) as ClientScope[]; const required = requiredScope ? Array.isArray(requiredScope) ? requiredScope : [requiredScope] : []; return required.every((scope) => scopes.includes(scope)); }
+  acquireLock(key: string): boolean { const now = new Date(); const acquiredAt = now.toISOString(); const expiresAt = new Date(now.getTime() + this.lockLeaseMs).toISOString(); this.db.exec('BEGIN IMMEDIATE'); try { this.db.prepare('DELETE FROM locks WHERE expires_at IS NULL OR expires_at<=?').run(acquiredAt); const inserted = this.db.prepare('INSERT OR IGNORE INTO locks (key,acquired_at,owner,expires_at) VALUES (?,?,?,?)').run(key, acquiredAt, this.lockOwner, expiresAt); this.db.exec('COMMIT'); return inserted.changes === 1; } catch (error) { this.db.exec('ROLLBACK'); throw error; } }
+  releaseLock(key: string): void { this.db.prepare('DELETE FROM locks WHERE key=? AND owner=?').run(key, this.lockOwner); }
+  reserveCampaignApplication(campaignId: string, dayKey: string, maximum: number): boolean { if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey) || !Number.isInteger(maximum) || maximum < 1) throw new Error('Invalid campaign daily-limit reservation'); const now = new Date().toISOString(); this.db.exec('BEGIN IMMEDIATE'); try { this.db.prepare('INSERT OR IGNORE INTO campaign_daily_usage VALUES (?,?,0,?)').run(campaignId, dayKey, now); const result = this.db.prepare('UPDATE campaign_daily_usage SET count=count+1,updated_at=? WHERE campaign_id=? AND day_key=? AND count<?').run(now, campaignId, dayKey, maximum); this.db.exec('COMMIT'); return result.changes === 1; } catch (error) { this.db.exec('ROLLBACK'); throw error; } }
   private createSnapshot(profile: CandidateProfile, versionKey: string, resume?: { id: string; content: Uint8Array }): void { const row = this.db.prepare('SELECT COALESCE(MAX(version),0)+1 version FROM profile_versions WHERE profile_id=?').get(profile.id) as { version: number }; const snapshot = createProfileSnapshot(profile, row.version, resume); const versionId = createHash('sha256').update(`${profile.id}:${row.version}:${versionKey}`).digest('hex'); this.db.prepare('INSERT INTO profile_versions VALUES (?,?,?,?,?)').run(versionId, profile.id, snapshot.version, versionKey, snapshot.createdAt); for (const fact of snapshot.facts) this.db.prepare('INSERT INTO profile_facts VALUES (?,?,?)').run(fact.id, versionId, JSON.stringify(fact)); this.db.prepare('INSERT INTO profile_snapshots VALUES (?,?,?,?,?,?,?,?)').run(snapshot.id, profile.id, versionId, snapshot.resumeFileId ?? null, snapshot.resumeHash, snapshot.factsHash, JSON.stringify(snapshot), snapshot.createdAt); }
   close(): void { this.db.close(); }
 }

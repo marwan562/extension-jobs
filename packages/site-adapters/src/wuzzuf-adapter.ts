@@ -5,7 +5,7 @@ import type { Page } from 'playwright';
 import type { FieldAnswer, Job, RawJob } from '../../shared/src/domain.ts';
 import { normalizeJob } from '../../shared/src/jobs.ts';
 import { WuzzufToolError, type WuzzufSearchInput } from '../../shared/src/wuzzuf.ts';
-import type { AdapterContext, ApprovedFile, FormField, JobSiteAdapter, JobSource } from './index.ts';
+import type { AdapterContext, ApprovedFile, FormControlValue, FormField, JobSiteAdapter, JobSource } from './index.ts';
 import { detectWuzzufPageState, normalizeWuzzufUrl, parseWuzzufJobHtml, parseWuzzufSearchHtml } from './wuzzuf-parser.ts';
 import { wuzzufSelectors } from './wuzzuf-selectors.ts';
 import { ChromeCdpManager, type BrowserConnectionManager } from './chrome-cdp-manager.ts';
@@ -218,20 +218,17 @@ export class WuzzufAdapter implements JobSiteAdapter {
         const type = await locator.getAttribute('type');
         if (tag === 'SELECT' && answer.value) {
           await locator.selectOption({ label: answer.value as string });
-        } else if (type === 'checkbox' || type === 'radio') {
-          if (answer.value && /^(yes|true|checked)$/i.test(answer.value)) {
-            await locator.evaluate((el) => {
-              const input = el as HTMLInputElement;
-              const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked')?.set;
-              if (valueSetter) {
-                valueSetter.call(input, true);
-              } else {
-                input.checked = true;
-              }
-              input.dispatchEvent(new Event('click', { bubbles: true }));
-              input.dispatchEvent(new Event('change', { bubbles: true }));
-            });
-          }
+        } else if (type === 'checkbox') {
+          const checked = booleanControlValue(answer.value);
+          if (checked === undefined) { skipped.push(answer.label); continue; }
+          await locator.setChecked(checked);
+        } else if (type === 'radio') {
+          const option = answer.label.match(/\[Option:\s*(.+?)\]$/i)?.[1]?.trim();
+          const inputValue = clean(await locator.getAttribute('value') ?? '');
+          const answerValue = clean(answer.value).toLowerCase();
+          const selectsOption = [option, inputValue].filter(Boolean).some((value) => clean(value!).toLowerCase() === answerValue);
+          if (selectsOption || booleanControlValue(answer.value) === true) await locator.check();
+          else { skipped.push(answer.label); continue; }
         } else if (answer.value) {
           await locator.fill(answer.value as string);
         }
@@ -239,6 +236,22 @@ export class WuzzufAdapter implements JobSiteAdapter {
       filled.push(answer.label);
     }
     return { filled, skipped };
+  }
+
+  async collectFieldValues(session: { id: string }): Promise<FormControlValue[]> {
+    const page = this.page(session.id); await this.assertSafePage(page); const form = await firstExisting(page, wuzzufSelectors.form);
+    if (!form) throw new WuzzufToolError('WUZZUF_UNSUPPORTED_LAYOUT', 'Application form was not found', { retryable: true });
+    return form.locator('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea').evaluateAll((nodes) => nodes.map((node, index) => {
+      const el = node as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+      const rawType = el instanceof HTMLSelectElement ? 'select' : el instanceof HTMLInputElement ? el.type : 'text';
+      const type = (['email', 'tel', 'select', 'radio', 'checkbox', 'file'].includes(rawType) ? rawType : 'text') as FormControlValue['type'];
+      let value: string;
+      if (el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')) value = el.checked ? 'true' : 'false';
+      else if (el instanceof HTMLInputElement && el.type === 'file') value = Array.from(el.files ?? []).map((file) => file.name).join(',');
+      else if (el instanceof HTMLSelectElement) value = el.selectedOptions[0]?.text.trim() ?? '';
+      else value = el.value;
+      return { id: `field-${index}`, type, value };
+    })) as Promise<FormControlValue[]>;
   }
 
   async uploadApprovedFile(session: { id: string }, file: ApprovedFile): Promise<{ uploaded: boolean }> {
@@ -251,7 +264,14 @@ export class WuzzufAdapter implements JobSiteAdapter {
 
   async submit(session: { id: string }, context: AdapterContext): Promise<{ submitted: boolean; confirmation?: string }> {
     context.signal.throwIfAborted(); if (context.dryRun) throw new WuzzufToolError('WUZZUF_DRY_RUN_BLOCKED', 'Submission is disabled in dry-run mode', { status: 409 }); const page = this.page(session.id); const validation = await this.validate(session); if (!validation.valid) throw new WuzzufToolError('WUZZUF_VALIDATION_FAILED', 'Application form is not valid', { status: 409, diagnostics: { errors: validation.errors } });
-    const button = await firstExisting(page, wuzzufSelectors.submitButton); if (!button) throw new WuzzufToolError('WUZZUF_UNSUPPORTED_LAYOUT', 'Submit button was not found', { retryable: true }); await button.click(); await page.waitForLoadState('domcontentloaded', { timeout: this.timeoutMs }).catch(() => undefined); await this.assertSafePage(page); const success = page.locator('[role="status"], [data-testid="application-success"], main h1').first(); const confirmation = await success.count() ? clean(await success.textContent() ?? '') : ''; if (!confirmation && page.url().includes('/job-questions/')) throw new WuzzufToolError('WUZZUF_SUBMISSION_UNCONFIRMED', 'Wuzzuf kept the application form open without a success confirmation', { retryable: true }); return { submitted: true, ...(confirmation ? { confirmation } : {}) };
+    const button = await firstExisting(page, wuzzufSelectors.submitButton); if (!button) throw new WuzzufToolError('WUZZUF_UNSUPPORTED_LAYOUT', 'Submit button was not found', { retryable: true });
+    const successSelector = '[role="status"], [data-testid="application-success"]';
+    const before = new Set((await page.locator(successSelector).allTextContents()).map(clean).filter(Boolean));
+    context.onSubmitStarted?.(); await button.click(); await page.waitForLoadState('domcontentloaded', { timeout: this.timeoutMs }).catch(() => undefined); await this.assertSafePage(page);
+    await page.waitForFunction(({ selector, previous }) => Array.from(document.querySelectorAll(selector)).some((node) => { const text = (node.textContent ?? '').replace(/\s+/g, ' ').trim(); return text.length > 0 && !previous.includes(text) && /\b(application\s+(received|submitted|sent|successful)|successfully\s+applied|thank\s+you)\b/i.test(text); }), { selector: successSelector, previous: [...before] }, { timeout: Math.min(this.timeoutMs, 10_000) }).catch(() => undefined);
+    const confirmation = (await page.locator(successSelector).allTextContents()).map(clean).find((text) => text && !before.has(text) && submissionConfirmation(text)) ?? '';
+    if (!confirmation) throw new WuzzufToolError('WUZZUF_SUBMISSION_UNCONFIRMED', 'The submit action completed without a trusted Wuzzuf success confirmation.', { status: 409, actionRequired: 'Review the application in Wuzzuf manually.' });
+    return { submitted: true, confirmation };
   }
 
   async screenshot(sessionId: string, label: string): Promise<string> { const page = this.page(sessionId); await mkdir(this.screenshotDir, { recursive: true }); const filename = `${sessionId}-${label.replace(/[^a-z0-9-]/gi, '-')}-${Date.now()}.png`; const path = resolve(this.screenshotDir, filename); await page.screenshot({ path, fullPage: true }); return filename; }
@@ -320,4 +340,6 @@ async function firstExisting(root: Page, selectors: readonly string[]) {
 }
 async function countAny(page: Page, selectors: readonly string[]): Promise<number> { let count = 0; for (const selector of selectors) count += await page.locator(selector).count(); return count; }
 function clean(value: string): string { return value.replace(/\s+/g, ' ').trim(); }
+function booleanControlValue(value: string): boolean | undefined { if (/^(yes|true|checked|1)$/i.test(value.trim())) return true; if (/^(no|false|unchecked|0)$/i.test(value.trim())) return false; return undefined; }
+function submissionConfirmation(value: string): boolean { return /\b(application\s+(received|submitted|sent|successful)|successfully\s+applied|thank\s+you)\b/i.test(value); }
 function isChallenge(error: unknown): error is WuzzufToolError { return error instanceof WuzzufToolError && error.code === 'WUZZUF_CHALLENGE_REQUIRED'; }
