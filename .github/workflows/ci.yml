@@ -20,6 +20,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Install Chromium system dependencies
+        if: runner.os == 'Linux'
+        run: npx playwright install-deps chromium
+      - name: Install Chromium
+        run: npx playwright install chromium
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run test:unit

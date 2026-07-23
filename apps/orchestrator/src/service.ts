@@ -6,9 +6,9 @@ import { prepareAnswer } from '../../../packages/profile-engine/src/index.ts';
 import { WuzzufAdapter, type JobSource } from '../../../packages/site-adapters/src/index.ts';
 import type { LlmProvider } from '../../../packages/provider-sdk/src/index.ts';
 import { Store } from './store.ts';
-import { WuzzufToolService } from './wuzzuf-tool-service.ts';
+import { WuzzufConnectorService } from './wuzzuf-tool-service.ts';
 import { sanitizeAuditDetail } from '../../../packages/security/src/index.ts';
-import { JobApplicationService } from './job-application-service.ts';
+import { JobApplicationService, WuzzufCompatibilityFacade } from './job-application-service.ts';
 import { SitePolicyRegistry } from '../../../packages/site-policy-registry/src/index.ts';
 
 export class EmergencyStop {
@@ -22,8 +22,8 @@ export class EmergencyStop {
 
 export class OrchestratorService {
   readonly emergencyStop = new EmergencyStop();
-  readonly store: Store; readonly wuzzuf: WuzzufToolService; readonly jobs: JobApplicationService; private readonly source: JobSource; private readonly provider: LlmProvider;
-  constructor(store: Store, source: JobSource, provider: LlmProvider, wuzzufAdapter = new WuzzufAdapter(), options: { wuzzufExecutionMode?: 'inline' | 'coordinator' | 'direct'; workerToken?: string; workerTimeoutMs?: number } = {}) { this.store = store; this.source = source; this.provider = provider; const policies = new SitePolicyRegistry(); for (const setting of store.connectorSettings()) setting.enabled ? policies.enable(setting.connectorId) : policies.disable(setting.connectorId); this.jobs = new JobApplicationService(store, source, policies); this.wuzzuf = new WuzzufToolService(store, wuzzufAdapter, this.emergencyStop, this, { ...(options.wuzzufExecutionMode ? { executionMode: options.wuzzufExecutionMode } : {}), ...(options.workerToken ? { workerToken: options.workerToken } : {}), ...(options.workerTimeoutMs ? { workerTimeoutMs: options.workerTimeoutMs } : {}) }); }
+  readonly store: Store; readonly wuzzuf: WuzzufCompatibilityFacade; readonly jobs: JobApplicationService; private readonly source: JobSource; private readonly provider: LlmProvider;
+  constructor(store: Store, source: JobSource, provider: LlmProvider, wuzzufAdapter = new WuzzufAdapter(), options: { wuzzufExecutionMode?: 'inline' | 'coordinator' | 'direct'; workerToken?: string; workerTimeoutMs?: number } = {}) { this.store = store; this.source = source; this.provider = provider; const policies = new SitePolicyRegistry(); for (const setting of store.connectorSettings()) setting.enabled ? policies.enable(setting.connectorId) : policies.disable(setting.connectorId); const wuzzufConnector = new WuzzufConnectorService(store, wuzzufAdapter, this.emergencyStop, this, { ...(options.wuzzufExecutionMode ? { executionMode: options.wuzzufExecutionMode } : {}), ...(options.workerToken ? { workerToken: options.workerToken } : {}), ...(options.workerTimeoutMs ? { workerTimeoutMs: options.workerTimeoutMs } : {}) }); this.jobs = new JobApplicationService(store, source, wuzzufConnector, policies); this.wuzzuf = new WuzzufCompatibilityFacade(this.jobs); }
   get settings(): AgentSettings { return this.store.getAgentSettings() ?? { chatModel: '9router/9router-models', answerModel: '9router/9router-models', matchingModel: '9router/9router-models', temperature: 0.2, maximumAnswerLength: 800, confidenceThreshold: 0.8, maximumConcurrentRuns: 1, defaultDryRun: true, browserHeadless: true, updatedAt: new Date().toISOString() }; }
   saveSettings(settings: AgentSettings): void { this.store.saveAgentSettings(settings); this.audit(randomUUID(), 'agent.settings_updated', { chatModel: settings.chatModel, answerModel: settings.answerModel }); }
   audit(correlationId: string, type: string, detail: Record<string, unknown>, applicationId?: string): void { this.store.audit({ id: randomUUID(), correlationId, ...(applicationId ? { applicationId } : {}), type, at: new Date().toISOString(), detail: sanitizeAuditDetail(detail) as Record<string, unknown> }); }

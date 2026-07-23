@@ -7,12 +7,14 @@ import type { JobCampaign } from '../../../packages/shared/src/domain.ts';
 import { DestinationResolver, importCurrentPage, type CurrentPageInput } from '../../../packages/destination-resolver/src/index.ts';
 import { SitePolicyRegistry } from '../../../packages/site-policy-registry/src/index.ts';
 import type { Store } from './store.ts';
+import type { WuzzufSearchInput } from '../../../packages/shared/src/wuzzuf.ts';
+import type { ApprovedAnswerOverride, WuzzufConnectorService } from './wuzzuf-tool-service.ts';
 
 export class JobApplicationService {
   readonly policies: SitePolicyRegistry;
   readonly destinations: DestinationResolver;
-  private readonly store: Store; private readonly source: JobSource;
-  constructor(store: Store, source: JobSource, policies = new SitePolicyRegistry()) { this.store = store; this.source = source; this.policies = policies; this.destinations = new DestinationResolver(policies); }
+  private readonly store: Store; private readonly source: JobSource; private readonly wuzzufConnector: WuzzufConnectorService;
+  constructor(store: Store, source: JobSource, wuzzufConnector: WuzzufConnectorService, policies = new SitePolicyRegistry()) { this.store = store; this.source = source; this.wuzzufConnector = wuzzufConnector; this.policies = policies; this.destinations = new DestinationResolver(policies); }
 
   capabilities(connectorId: ConnectorId): { enabled: boolean; policy: ReturnType<SitePolicyRegistry['get']> };
   capabilities(): Array<{ enabled: boolean; policy: ReturnType<SitePolicyRegistry['get']> }>;
@@ -55,4 +57,62 @@ export class JobApplicationService {
     const scored = scoreJob(legacy, profile, campaign); this.store.upsertJob(scored);
     return { operationId: randomUUID(), jobId: scored.id, score: scored.matchScore, explanation: scored.scoreExplanation };
   }
+
+  prepareApplication(input: { jobId?: string; url?: string; profileId?: string; dryRun?: boolean; idempotencyKey?: string }) {
+    this.assertMaintainedApplicationConnector(input);
+    return this.wuzzufConnector.prepare(input);
+  }
+  fillApplication(input: { applicationId: string; approvedAnswerOverrides?: ApprovedAnswerOverride[]; dryRun?: boolean; idempotencyKey?: string }) { return this.wuzzufConnector.fill(input); }
+  getApplicationReview(applicationId: string) { return this.wuzzufConnector.review(applicationId); }
+  requestSubmissionApproval(input: { applicationId: string; ttlSeconds?: number; idempotencyKey?: string }) { return this.wuzzufConnector.requestSubmissionApproval(input); }
+  submitApplication(input: { applicationId: string; approvalRequestId: string; approvalToken?: string; idempotencyKey?: string }) { return this.wuzzufConnector.submit(input); }
+  getApplicationStatus(applicationId: string) { return this.wuzzufConnector.status(applicationId); }
+  cancelApplication(input: string | { applicationId: string; idempotencyKey?: string }) { return this.wuzzufConnector.cancel(input); }
+
+  wuzzufSearch(input: WuzzufSearchInput) { return this.wuzzufConnector.search(input); }
+  wuzzufDetails(url: string) { return this.wuzzufConnector.details(url); }
+  wuzzufScore(input: { jobId?: string; url?: string; profileId?: string }) { return this.wuzzufConnector.score(input); }
+  createWuzzufConnection() { return this.wuzzufConnector.createConnection(); }
+  verifyWuzzufConnection() { return this.wuzzufConnector.verifyConnection(); }
+  disconnectWuzzuf() { return this.wuzzufConnector.disconnect(); }
+  getWuzzufConnectionStatus() { return this.wuzzufConnector.authStatus(); }
+  openWuzzufLogin() { return this.wuzzufConnector.openLogin(); }
+  decideApplicationApproval(requestId: string, approved: boolean) { return this.wuzzufConnector.decideApproval(requestId, approved); }
+  pendingApplicationApprovals() { return this.wuzzufConnector.pendingApprovals(); }
+  browserStatus() { return this.wuzzufConnector.browserStatus(); }
+  close() { return this.wuzzufConnector.close(); }
+  get wuzzufAdapter() { return this.wuzzufConnector.adapter; }
+
+  private assertMaintainedApplicationConnector(input: { jobId?: string; url?: string }): void {
+    const job = input.jobId ? this.store.getJob(input.jobId) : input.url ? this.store.getJobByUrl(input.url) : undefined;
+    if (!job) return;
+    const connectorId = job.source === 'wuzzuf' ? 'wuzzuf' : this.policies.connectorForHost(new URL(job.url).hostname);
+    if (connectorId !== 'wuzzuf' || !this.policies.isEnabled('wuzzuf')) throw new Error('CONNECTOR_CAPABILITY_UNAVAILABLE');
+  }
+}
+
+/** @deprecated One-release compatibility facade. New code uses JobApplicationService. */
+export class WuzzufCompatibilityFacade {
+  private readonly jobs: JobApplicationService;
+  constructor(jobs: JobApplicationService) { this.jobs = jobs; }
+  get adapter() { return this.jobs.wuzzufAdapter; }
+  search(input: WuzzufSearchInput) { return this.jobs.wuzzufSearch(input); }
+  details(url: string) { return this.jobs.wuzzufDetails(url); }
+  score(input: { jobId?: string; url?: string; profileId?: string }) { return this.jobs.wuzzufScore(input); }
+  prepare(input: { jobId?: string; url?: string; profileId?: string; dryRun?: boolean; idempotencyKey?: string }) { return this.jobs.prepareApplication(input); }
+  fill(input: { applicationId: string; approvedAnswerOverrides?: ApprovedAnswerOverride[]; dryRun?: boolean; idempotencyKey?: string }) { return this.jobs.fillApplication(input); }
+  review(applicationId: string) { return this.jobs.getApplicationReview(applicationId); }
+  status(applicationId: string) { return this.jobs.getApplicationStatus(applicationId); }
+  requestSubmissionApproval(input: { applicationId: string; ttlSeconds?: number; idempotencyKey?: string }) { return this.jobs.requestSubmissionApproval(input); }
+  decideApproval(requestId: string, approved: boolean) { return this.jobs.decideApplicationApproval(requestId, approved); }
+  pendingApprovals() { return this.jobs.pendingApplicationApprovals(); }
+  submit(input: { applicationId: string; approvalRequestId: string; approvalToken?: string; idempotencyKey?: string }) { return this.jobs.submitApplication(input); }
+  cancel(input: string | { applicationId: string; idempotencyKey?: string }) { return this.jobs.cancelApplication(input); }
+  authStatus() { return this.jobs.getWuzzufConnectionStatus(); }
+  verifyConnection() { return this.jobs.verifyWuzzufConnection(); }
+  createConnection() { return this.jobs.createWuzzufConnection(); }
+  disconnect() { return this.jobs.disconnectWuzzuf(); }
+  browserStatus() { return this.jobs.browserStatus(); }
+  openLogin() { return this.jobs.openWuzzufLogin(); }
+  close() { return this.jobs.close(); }
 }

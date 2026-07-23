@@ -18,7 +18,11 @@ export interface WuzzufWorkerRequest { action: WuzzufWorkerAction; input?: unkno
 export interface SealedWorkerRequest { version: 1; iv: string; tag: string; ciphertext: string }
 type ExecutionMode = 'inline' | 'coordinator' | 'direct';
 
-export class WuzzufToolService {
+/**
+ * Connector-owned Wuzzuf execution. Public and compatibility APIs reach this
+ * through JobApplicationService so orchestration has one generic boundary.
+ */
+export class WuzzufConnectorService {
   private readonly controllers = new Map<string, AbortController>();
   private readonly userId = process.env.WUZZUF_USER_ID ?? 'local-user';
   readonly store: Store;

@@ -41,7 +41,7 @@ sequenceDiagram
   O-->>C: Sanitized status/result
 ```
 
-The generic service normalizes jobs, resolves discovery and destination independently, consults versioned capability policy, selects only verified profile facts, and preserves compatibility aliases. Unknown connectors, states, capabilities, hosts, layouts, redirects, and form fingerprints fail closed.
+The generic service normalizes jobs, resolves discovery and destination independently, consults versioned capability policy, selects only verified profile facts, and owns the application lifecycle. Wuzzuf connector execution sits behind this service; deprecated Wuzzuf routes and tools are thin aliases back into it. Unknown connectors, states, capabilities, hosts, layouts, redirects, and form fingerprints fail closed.
 
 The extension service worker owns its bearer session; content scripts receive only operation-specific messages. OpenClaw and Composio use distinct configured credentials and cannot approve submissions. Browser cookies remain inside the user's existing Chrome profile. Resume sources and generated files live in a private vault with opaque IDs and hashes.
 

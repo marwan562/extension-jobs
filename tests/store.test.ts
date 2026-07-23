@@ -7,7 +7,10 @@ test('submission reservation is idempotent across restart', () => { const path =
 test('store protects local data files and stale locks expire safely', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'private-store-')); const path = join(directory, 'db.sqlite');
   const first = new Store(path, { lockLeaseMs: 60_000 }); assert.equal(first.acquireLock('campaign:test'), true); first.close();
-  assert.equal(statSync(directory).mode & 0o077, 0); assert.equal(statSync(path).mode & 0o077, 0);
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(directory).mode & 0o077, 0);
+    assert.equal(statSync(path).mode & 0o077, 0);
+  }
   const beforeExpiry = new Store(path, { lockLeaseMs: 60_000 }); assert.equal(beforeExpiry.acquireLock('campaign:test'), false); beforeExpiry.close();
   const database = new DatabaseSync(path); database.prepare("UPDATE locks SET expires_at='1970-01-01T00:00:00.000Z' WHERE key=?").run('campaign:test'); database.close();
   const afterExpiry = new Store(path, { lockLeaseMs: 60_000 }); assert.equal(afterExpiry.acquireLock('campaign:test'), true); afterExpiry.releaseLock('campaign:test'); afterExpiry.close();

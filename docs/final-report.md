@@ -1,12 +1,13 @@
 # Public v1 implementation report
 
-Report date: 2026-07-22 (Africa/Cairo). This is a release-candidate report. Locally verified criteria are marked **PASS**; criteria requiring a hosted run or remaining architectural convergence are marked **FAIL**, not inferred.
+Report date: 2026-07-23 (Africa/Cairo). This is a release-candidate report. Locally verified criteria are marked **PASS**; criteria requiring a hosted run are marked **FAIL**, not inferred.
 
 ## 1. Current HEAD inspected
 
 - Branch: `main`, tracking `origin/main`.
-- Inspected HEAD: `95538ae6c0cdd3b9c2524f08283cdfd2eb64879b` (`test: make stale lock regression deterministic`).
-- The worktree was clean before implementation. No commit was created; the implementation remains reviewable as working-tree changes.
+- Baseline HEAD: `95538ae6c0cdd3b9c2524f08283cdfd2eb64879b` (`test: make stale lock regression deterministic`).
+- First implementation commit inspected remotely: `be530572a880f54fcacf87c0bb4d2d992f64bb56` (`feat: implement openclaw-jobs SDK with supporting architecture, documentation, and orchestrator integration`).
+- The first hosted CI run for that commit was audited before this follow-up; the release-candidate fixes remain reviewable as the current working-tree diff until committed.
 
 ## 2. Baseline command results
 
@@ -16,7 +17,7 @@ Before modification, `npm ci`, lint/typecheck, 18 unit tests, 6 contract tests, 
 
 Before: contracts and clients were Wuzzuf-specific; discovery source and application destination were coupled; queued browser jobs executed inline; resume bytes were stored in SQLite without a complete provenance/tailoring/render pipeline; the extension used broad static page access; the CLI did not provide a public-product lifecycle.
 
-After: canonical generic contracts feed a versioned site-policy registry, separate source/destination boundaries, a safe current-page resolver, universal form engine, ATS adapters, daemon-owned SQLite state, private artifact vault, grounded resume import/tailor/render packages, authenticated standalone worker, generic daemon routes, generic OpenClaw and Composio packages, least-privilege extension, public CLI, CI, and reproducible release packaging. Wuzzuf remains as a tested compatibility facade over the same database, policies, queue, approvals, and worker.
+After: canonical generic contracts feed a versioned site-policy registry, separate source/destination boundaries, a safe current-page resolver, universal form engine, ATS adapters, daemon-owned SQLite state, private artifact vault, grounded resume import/tailor/render packages, authenticated standalone worker, generic daemon routes, generic OpenClaw and Composio packages, least-privilege extension, public CLI, CI, and reproducible release packaging. `JobApplicationService` owns the public application lifecycle; Wuzzuf connector execution sits behind it, and deprecated Wuzzuf routes/tools are tested aliases back into that same service.
 
 ## 4. Final repository tree
 
@@ -147,13 +148,13 @@ The repository root remains `private: true`.
 
 ## 20. Commands executed
 
-Audit/setup: Git status/log/revision/tree searches, full prompt read, `npm ci`, and doctor. Verification: lint/typecheck, unit, contract, integration, E2E and wildcard suites; build; plugin build/validate; PDF verification plus Poppler inspection; secret scan; `git diff --check`. Packaging: `npm pack`, clean offline tarball install/import/runtime, OpenClaw link/inspect/skill/uninstall checks, extension ZIP integrity, and SHA-256 verification. `composio whoami` confirmed a local connection without printing credentials. The root online audit could not be refreshed under the network policy; an offline result is not treated as equivalent.
+Audit/setup: Git status/log/revision/tree searches, full prompt read, `npm ci`, doctor, and GitHub Actions job/log inspection for pushed commit `be53057`. Verification: lint/typecheck, unit, contract, integration, E2E and wildcard suites; generic/compatibility convergence contracts; build; plugin build/validate; PDF verification plus Poppler inspection; secret scan; `git diff --check`. Packaging: `npm pack`, clean offline tarball install/import/runtime, OpenClaw link/inspect/skill/uninstall checks, extension ZIP integrity, and SHA-256 verification. `composio whoami` confirmed a local connection without printing credentials. The root online audit could not be independently refreshed under the network policy; an offline result is not treated as equivalent, and the authoritative hosted gate remains enabled.
 
 ## 21. Test, build, plugin, and skill results
 
 - Typecheck/lint: **PASS**.
-- Unit: **PASS 31/31**; contract: **PASS 9/9**; integration: **PASS 17/17**; E2E: **PASS 10/10**.
-- Complete wildcard suite: **PASS 74/74**.
+- Unit: **PASS 31/31**; contract: **PASS 10/10**; integration: **PASS 18/18**; E2E: **PASS 10/10**.
+- Complete wildcard suite: **PASS 76/76**.
 - Build: **PASS** for root, extension, CLI, generic packages, compatibility packages, and host.
 - OpenClaw plugin build/validation: **PASS**; warnings were limited to read-only unrelated global OpenClaw state.
 - Bundled `skills/extension-jobs/SKILL.md`, manifest/runtime inventory, link/install/uninstall, and clean packed import: **PASS**.
@@ -162,11 +163,11 @@ Audit/setup: Git status/log/revision/tree searches, full prompt read, `npm ci`, 
 - PDF text extraction, deterministic hashes/metadata, and visual layout: **PASS**.
 - Secret scan and `git diff --check`: **PASS**.
 - Root dependency audit: **NOT CLEARED ONLINE**; the earlier install summary reported 7 moderate and 1 high advisory.
-- Hosted Linux/macOS/Windows CI: **CONFIGURED, NOT OBSERVED** for this uncommitted worktree.
+- Hosted Linux/macOS/Windows CI: **FIRST RUN AUDITED, REPLACEMENT PENDING**. The first run found missing Chromium provisioning, plugin build-order coupling, and a POSIX mode assertion on Windows; all three have focused regression fixes.
 
 ## 22. Known limitations
 
-The principal stable-v1 gaps are convergence of the separate Wuzzuf compatibility application facade onto the generic application service, an observed green hosted OS matrix, and a refreshed online dependency advisory review. Generic ATS application execution remains deliberately fail-closed until each production connector is maintained. Live production submission is intentionally untested. See [known-limitations.md](known-limitations.md).
+The remaining stable-v1 release gate is an observed green hosted OS matrix with its online high-severity dependency review. Generic ATS application execution remains deliberately fail-closed until each production connector is maintained. Live production submission is intentionally untested. See [known-limitations.md](known-limitations.md).
 
 ## 23. Manual setup steps
 
@@ -184,8 +185,7 @@ The principal stable-v1 gaps are convergence of the separate Wuzzuf compatibilit
 
 ### Architecture
 
-- **PASS** generic contracts exist; source/destination are separate; capability policy fails closed; daemon/SQLite/vault are the system of record; compatibility tools remain documented and tested.
-- **FAIL** Wuzzuf is not yet entirely expressed through the generic application service: the compatibility facade shares the generic worker/policies/storage but retains its focused service layer.
+- **PASS** generic contracts exist; source/destination are separate; capability policy fails closed; daemon/SQLite/vault are the system of record; `JobApplicationService` owns application orchestration; Wuzzuf connector execution is behind it; compatibility routes/tools are thin, documented, and tested aliases.
 
 ### Resume
 
@@ -216,12 +216,11 @@ The principal stable-v1 gaps are convergence of the separate Wuzzuf compatibilit
 - **PASS** license/security/privacy/contribution files; publishable intended packages; private root; generated checksummed artifacts; secret scan; required documentation.
 - **FAIL** cross-platform CI is configured but has not been observed green for this worktree; the online high-severity dependency gate is not cleared.
 
-Overall: **release candidate implemented and locally verified; stable public-v1 promotion remains blocked by the two explicit FAIL items above**.
+Overall: **release candidate implemented and locally verified; stable public-v1 promotion remains blocked only by the hosted CI/audit FAIL above**.
 
 ## 25. Recommended next work
 
-1. Reimplement the remaining Wuzzuf compatibility application facade as aliases of generic application service methods, then deprecate it on a documented schedule.
-2. Push a review branch and require Linux/macOS/Windows CI plus a current online `npm audit --audit-level=high` to pass before release promotion.
-3. Add sanitized multi-step production fixtures per ATS and enable each worker handler only after policy, challenge, and duplicate-submit review.
-4. Add OS keychain/credential-store integration and consider Native Messaging as a hardened alternative transport.
-5. Run a supervised, dry-run-first production canary and document manual verification for uncertain external outcomes.
+1. Require Linux/macOS/Windows CI plus the current online `npm audit --audit-level=high` gate to pass before release promotion.
+2. Add sanitized multi-step production fixtures per ATS and enable each worker handler only after policy, challenge, and duplicate-submit review.
+3. Add OS keychain/credential-store integration and consider Native Messaging as a hardened alternative transport.
+4. Run a supervised, dry-run-first production canary and document manual verification for uncertain external outcomes.

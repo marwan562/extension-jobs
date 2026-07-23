@@ -39,7 +39,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "plugin:build": "openclaw plugins build --root . --entry ./dist/index.js",
+    "plugin:build": "npm run build && openclaw plugins build --root . --entry ./dist/index.js",
     "plugin:validate": "openclaw plugins validate --root . --entry ./dist/index.js"
   },
   "dependencies": {
