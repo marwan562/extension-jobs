@@ -9,12 +9,14 @@ import { OrchestratorService } from './service.ts';
 import { sanitizeAuditDetail, sanitizeDiagnostics } from '../../../packages/security/src/index.ts';
 import { clientScopes, connectorIds, type Artifact, type ClientScope, type ConnectorId } from '../../../packages/shared-contracts/src/index.ts';
 import type { Store } from './store.ts';
-import { resolve } from 'node:path';
+import { extname, join, resolve } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { ArtifactStore } from '../../../packages/artifact-store/src/index.ts';
 import { ResumeVault } from '../../../packages/resume-importers/src/index.ts';
 import { tailorResume } from '../../../packages/resume-tailor/src/index.ts';
 import type { NormalizedJob } from '../../../packages/shared-contracts/src/index.ts';
 import { LocalWorkerClient } from './worker-client.ts';
+import { DashboardSessions, handleDashboardRequest } from './dashboard-api.ts';
 
 type ResumeRenderResult = { artifacts: { json: Artifact; html: Artifact; pdf: Artifact; diff: Artifact; validation: Artifact } };
 
@@ -42,6 +44,7 @@ export function createBridge(service: OrchestratorService, options: BridgeOption
   if (options.toolToken) service.store.enrollClient('openclaw', 'OpenClaw plugin', options.toolToken, options.openclawScopes ?? defaultAgentScopes);
   if (options.composioToolToken) service.store.enrollClient('composio-host', 'Composio session host', options.composioToolToken, options.composioScopes ?? defaultAgentScopes);
   const sessions = new Sessions(options.pairingCode, options.sessionTtlMs ?? 15 * 60_000, service.store);
+  const dashboardSessions = new DashboardSessions(options.pairingCode, options.sessionTtlMs ?? 15 * 60_000);
   const worker = options.workerToken ? new LocalWorkerClient(service.store, options.workerToken, options.workerTimeoutMs) : undefined;
   const limiter = new RateLimiter(120, 60_000);
   const server = createServer(async (req, res) => {
@@ -50,6 +53,8 @@ export function createBridge(service: OrchestratorService, options: BridgeOption
       applySecurityHeaders(req, res, options.allowedOrigin);
       if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      if (await serveDashboard(req, res, url)) return;
+      if (await handleDashboardRequest(req, res, url, service, dashboardSessions, worker)) return;
       if (req.method === 'GET' && url.pathname === '/health') return json(res, 200, { ok: true, emergencyStop: service.emergencyStop.active, chrome: service.wuzzuf.browserStatus() });
       if (req.method === 'GET' && url.pathname === '/health/live') return json(res, 200, { ok: true, status: 'live' });
       if (req.method === 'GET' && url.pathname === '/health/ready') { const browser = service.wuzzuf.browserStatus(); const ready = !service.emergencyStop.active; return json(res, ready ? 200 : 503, { ok: ready, storage: service.store.health(), queue: service.store.queue.health(), browser, emergencyStop: service.emergencyStop.active }); }
@@ -172,10 +177,31 @@ async function dispatchWuzzufAction(service: OrchestratorService, action: Wuzzuf
 }
 
 function applySecurityHeaders(req: IncomingMessage, res: ServerResponse, allowedOrigin: string): void {
-  const origin = req.headers.origin; if (origin && origin !== allowedOrigin) throw new HttpError(403, 'Origin denied');
+  const origin = req.headers.origin; const host = req.headers.host ?? ''; const dashboardOrigin = /^(?:127\.0\.0\.1|localhost):\d+$/.test(host) ? `http://${host}` : undefined;
+  if (origin && origin !== allowedOrigin && origin !== dashboardOrigin) throw new HttpError(403, 'Origin denied');
   if (origin === allowedOrigin) res.setHeader('access-control-allow-origin', allowedOrigin);
-  res.setHeader('vary', 'Origin'); res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS'); res.setHeader('access-control-allow-headers', 'authorization,content-type');
+  res.setHeader('vary', 'Origin'); res.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS'); res.setHeader('access-control-allow-headers', 'authorization,content-type,x-csrf-token,x-correlation-id,if-match');
   res.setHeader('x-content-type-options', 'nosniff'); res.setHeader('cache-control', 'no-store'); res.setHeader('referrer-policy', 'no-referrer');
+  res.setHeader('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  res.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+}
+
+async function serveDashboard(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+  if (url.pathname === '/') { res.writeHead(302, { location: '/dashboard/' }); res.end(); return true; }
+  if (url.pathname !== '/dashboard' && !url.pathname.startsWith('/dashboard/')) return false;
+  if (url.pathname === '/dashboard') { res.writeHead(302, { location: '/dashboard/' }); res.end(); return true; }
+  const root = resolve(process.cwd(), 'apps/dashboard/dist');
+  if (!existsSync(root)) return false;
+  const relative = url.pathname.slice('/dashboard/'.length);
+  const candidate = relative && !relative.includes('..') ? join(root, relative) : join(root, 'index.html');
+  const path = existsSync(candidate) && statSync(candidate).isFile() ? candidate : join(root, 'index.html');
+  if (!existsSync(path)) return false;
+  const content = readFileSync(path);
+  const type = ({ '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.woff2': 'font/woff2' } as Record<string, string>)[extname(path)] ?? 'application/octet-stream';
+  res.writeHead(200, { 'content-type': type, 'content-length': content.length, 'cache-control': path.endsWith('index.html') ? 'no-store' : 'public, max-age=31536000, immutable' });
+  if (req.method === 'HEAD') res.end(); else res.end(content);
+  return true;
 }
 function authorize(req: IncomingMessage, sessions: Sessions, store: Store, scope: ClientScope | readonly ClientScope[] | undefined, toolToken?: string, composioToolToken?: string): void { const suppliedOpenClaw = req.headers['x-openclaw-tool-token']; if (toolToken && typeof suppliedOpenClaw === 'string' && secretMatches(suppliedOpenClaw, toolToken)) { if (!store.authorizeClient('openclaw', suppliedOpenClaw, scope)) throw new HttpError(403, 'Client lacks required scope'); return; } const suppliedComposio = req.headers['x-composio-tool-token']; if (composioToolToken && typeof suppliedComposio === 'string' && secretMatches(suppliedComposio, composioToolToken)) { if (!store.authorizeClient('composio-host', suppliedComposio, scope)) throw new HttpError(403, 'Client lacks required scope'); return; } const auth = req.headers.authorization; if (!auth?.startsWith('Bearer ') || !sessions.valid(auth.slice(7))) throw new HttpError(401, 'Client authentication required'); }
 function secretMatches(actualValue: string, expectedValue: string): boolean { const expected = createHash('sha256').update(expectedValue).digest(); const actual = createHash('sha256').update(actualValue).digest(); return timingSafeEqual(expected, actual); }

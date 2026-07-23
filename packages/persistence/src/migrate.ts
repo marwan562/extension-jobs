@@ -5,7 +5,8 @@ import type { DatabaseSync } from 'node:sqlite';
 const migrations = [
   { version: 1, name: '001_core.sql' },
   { version: 2, name: '002_public_v1.sql' },
-  { version: 3, name: '003_canonical_profile_snapshots.sql' }
+  { version: 3, name: '003_canonical_profile_snapshots.sql' },
+  { version: 4, name: '004_dashboard.sql' }
 ] as const;
 
 export function applyCoreMigrations(db: DatabaseSync): void {

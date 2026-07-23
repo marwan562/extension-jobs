@@ -9,7 +9,11 @@ output/
 tmp/
 .env
 *.log
+*.tsbuildinfo
 .DS_Store
+apps/dashboard/test-results/
+apps/dashboard/vite.config.js
+apps/dashboard/vite.config.d.ts
 
 # ignore the file related to jobs find list (campaing.md...etc)
 wuzzuf-campaign.md

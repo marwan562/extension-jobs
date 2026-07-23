@@ -31,7 +31,11 @@ jobs:
       - run: npm run test:contract
       - run: npm run test:integration
       - run: npm run test:e2e
+      - run: npm run test:dashboard
       - run: npm run build
+      - name: Dashboard accessibility and visual regression
+        if: runner.os == 'macOS'
+        run: npm run test:dashboard:e2e
 
   release-safety:
     runs-on: ubuntu-latest
@@ -50,7 +54,7 @@ jobs:
       - run: npm run secret:scan
       - run: npm run release:package
       - name: Verify build artifacts
-        run: node -e "const fs=require('fs'); for(const f of ['apps/extension/dist/service-worker.js','apps/openclaw-jobs/dist/index.js','packages/composio-jobs/dist/index.js','apps/cli/dist/index.js','output/release/SHA256SUMS']) if(!fs.existsSync(f)) throw new Error(f)"
+        run: node -e "const fs=require('fs'); for(const f of ['apps/dashboard/dist/index.html','apps/extension/dist/service-worker.js','apps/openclaw-jobs/dist/index.js','packages/composio-jobs/dist/index.js','apps/cli/dist/index.js','output/release/extension-jobs-dashboard-1.0.0.zip','output/release/SHA256SUMS']) if(!fs.existsSync(f)) throw new Error(f)"
       - uses: actions/upload-artifact@v4
         with:
           name: extension-jobs-release-candidate

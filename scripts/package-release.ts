@@ -24,6 +24,11 @@ if (existsSync(extensionZip)) unlinkSync(extensionZip);
 run('zip', ['-q', '-r', extensionZip, 'manifest.json', 'sidepanel.html', 'options.html', 'styles.css', 'dist'], false, resolve(root, 'apps/extension'));
 artifacts.push(extensionZip);
 
+const dashboardZip = resolve(output, 'extension-jobs-dashboard-1.0.0.zip');
+if (existsSync(dashboardZip)) unlinkSync(dashboardZip);
+run('zip', ['-q', '-r', dashboardZip, 'dist'], false, resolve(root, 'apps/dashboard'));
+artifacts.push(dashboardZip);
+
 const checksums = artifacts
   .sort((a, b) => basename(a).localeCompare(basename(b)))
   .map((file) => `${createHash('sha256').update(readFileSync(file)).digest('hex')}  ${basename(file)}`)

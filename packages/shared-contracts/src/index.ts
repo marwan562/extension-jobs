@@ -266,3 +266,5 @@ export const clientScopes = [
   'campaigns:manage', 'audit:read', 'admin:emergency-stop', 'worker:execute'
 ] as const;
 export type ClientScope = typeof clientScopes[number];
+
+export * from './dashboard.ts';
