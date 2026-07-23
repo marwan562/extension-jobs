@@ -9,11 +9,12 @@ import { OrchestratorService } from '../apps/orchestrator/src/service.ts';
 import { createBridge } from '../apps/orchestrator/src/server.ts';
 import { FixtureJobSource } from '../packages/site-adapters/src/index.ts';
 import { DevelopmentProvider } from '../packages/provider-sdk/src/index.ts';
+import type { LlmProvider } from '../packages/provider-sdk/src/index.ts';
 import { normalizeJob } from '../packages/shared/src/jobs.ts';
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, provider: LlmProvider = new DevelopmentProvider()) {
   const store = new Store(join(mkdtempSync(join(tmpdir(), 'dashboard-api-')), 'jobs.sqlite'));
-  const service = new OrchestratorService(store, new FixtureJobSource(), new DevelopmentProvider());
+  const service = new OrchestratorService(store, new FixtureJobSource(), provider);
   const server = createBridge(service, { allowedOrigin: 'http://127.0.0.1:9999', pairingCode: 'dashboard-code', toolToken: 'agent-token' });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -23,6 +24,39 @@ async function fixture(t: TestContext) {
   const base = `http://127.0.0.1:${address.port}`;
   return { store, service, base };
 }
+
+test('dashboard chat streams provider output and reports startup failures as JSON', async (t) => {
+  const healthy = await fixture(t);
+  const healthyAuth = await login(healthy.base);
+  const healthyResponse = await fetch(`${healthy.base}/v1/dashboard/chat`, {
+    method: 'POST',
+    headers: { origin: healthy.base, cookie: healthyAuth.cookie, 'x-csrf-token': healthyAuth.csrf, 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'CHAT_OK' })
+  });
+  assert.equal(healthyResponse.status, 200);
+  const healthyEvents = (await healthyResponse.text()).trim().split('\n').map((line) => JSON.parse(line) as { type: string; text?: string });
+  assert.equal(healthyEvents.filter((event) => event.type === 'chunk').map((event) => event.text ?? '').join(''), 'OpenClaw development response: CHAT_OK');
+  assert.equal(healthyEvents.at(-1)?.type, 'done');
+
+  const unavailableProvider: LlmProvider = {
+    id: 'unavailable',
+    async testConnection() { return { ok: false, detail: 'offline' }; },
+    async discoverModels() { return []; },
+    async *streamChat() { throw new Error('private provider failure'); }
+  };
+  const unavailable = await fixture(t, unavailableProvider);
+  const unavailableAuth = await login(unavailable.base);
+  const unavailableResponse = await fetch(`${unavailable.base}/v1/dashboard/chat`, {
+    method: 'POST',
+    headers: { origin: unavailable.base, cookie: unavailableAuth.cookie, 'x-csrf-token': unavailableAuth.csrf, 'content-type': 'application/json' },
+    body: JSON.stringify({ text: 'hello' })
+  });
+  assert.equal(unavailableResponse.status, 503);
+  assert.match(unavailableResponse.headers.get('content-type') ?? '', /application\/json/);
+  const failureBody = await unavailableResponse.text();
+  assert.match(failureBody, /OpenClaw assistant is unavailable/);
+  assert.equal(failureBody.includes('private provider failure'), false);
+});
 
 async function login(base: string) {
   const response = await fetch(`${base}/v1/dashboard/session`, {

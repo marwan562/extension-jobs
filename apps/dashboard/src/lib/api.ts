@@ -53,21 +53,29 @@ export async function streamAssistant(text: string, onChunk: (chunk: string) => 
     body: JSON.stringify({ text }),
     signal
   });
-  if (!response.ok || !response.body) throw new ApiError(response.status, 'Assistant request failed');
+  if (!response.ok) {
+    const type = response.headers.get('content-type') ?? '';
+    const payload = type.includes('application/json') ? await response.json() as Partial<Envelope<never>> : undefined;
+    throw new ApiError(response.status, payload?.error ?? 'Assistant request failed', payload?.correlationId ?? response.headers.get('x-correlation-id') ?? undefined);
+  }
+  if (!response.body) throw new ApiError(response.status, 'Assistant returned an empty response', response.headers.get('x-correlation-id') ?? undefined);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  const handleLine = (line: string) => {
+    if (!line.trim()) return;
+    const event = JSON.parse(line) as { type: string; text?: string; error?: string; correlationId?: string };
+    if (event.type === 'chunk' && event.text) onChunk(event.text);
+    if (event.type === 'error') throw new ApiError(response.status, event.error ?? 'Assistant stream failed', event.correlationId ?? response.headers.get('x-correlation-id') ?? undefined);
+  };
   while (true) {
     const result = await reader.read();
     if (result.done) break;
     buffer += decoder.decode(result.value, { stream: true });
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      const event = JSON.parse(line) as { type: string; text?: string };
-      if (event.type === 'chunk' && event.text) onChunk(event.text);
-    }
+    for (const line of lines) handleLine(line);
   }
+  buffer += decoder.decode();
+  if (buffer.trim()) handleLine(buffer);
 }
-

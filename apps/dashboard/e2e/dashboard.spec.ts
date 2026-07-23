@@ -10,6 +10,11 @@ async function signIn(page: import('@playwright/test').Page) {
 
 test('authenticated dashboard supports keyboard navigation and real daemon data', async ({ page }) => {
   await signIn(page);
+  await page.getByRole('button', { name: 'Open assistant' }).click();
+  await page.getByLabel('Message assistant').fill('Reply with CHAT_OK');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByText('OpenClaw development response: Reply with CHAT_OK')).toBeVisible();
+  await page.getByRole('button', { name: 'Close assistant' }).last().click();
   await expect(page.getByText('4', { exact: true }).first()).toBeVisible();
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+K' : 'Control+K');
   await expect(page.getByRole('dialog', { name: 'Command palette' })).toBeVisible();

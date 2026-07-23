@@ -37,10 +37,13 @@ class Sessions {
 
 class HttpError extends Error { readonly status: number; constructor(status: number, message: string) { super(message); this.status = status; } }
 
-export interface BridgeOptions { allowedOrigin: string; pairingCode: string; sessionTtlMs?: number; toolToken?: string; composioToolToken?: string; workerToken?: string; workerTimeoutMs?: number; openclawScopes?: ClientScope[]; composioScopes?: ClientScope[] }
+export interface BridgeOptions { allowedOrigin: string | string[]; pairingCode: string; sessionTtlMs?: number; toolToken?: string; composioToolToken?: string; workerToken?: string; workerTimeoutMs?: number; openclawScopes?: ClientScope[]; composioScopes?: ClientScope[] }
 
 export function createBridge(service: OrchestratorService, options: BridgeOptions) {
-  if (!/^chrome-extension:\/\/[a-p]{32}$/.test(options.allowedOrigin) && !options.allowedOrigin.startsWith('http://127.0.0.1:')) throw new Error('An exact extension or loopback development origin is required');
+  const allowedOrigins = Array.isArray(options.allowedOrigin) ? options.allowedOrigin : [options.allowedOrigin];
+  for (const origin of allowedOrigins) {
+    if (!/^chrome-extension:\/\/[a-p]{32}$/.test(origin) && !origin.startsWith('http://127.0.0.1:') && !origin.startsWith('http://localhost:')) throw new Error('An exact extension or loopback development origin is required');
+  }
   if (options.toolToken) service.store.enrollClient('openclaw', 'OpenClaw plugin', options.toolToken, options.openclawScopes ?? defaultAgentScopes);
   if (options.composioToolToken) service.store.enrollClient('composio-host', 'Composio session host', options.composioToolToken, options.composioScopes ?? defaultAgentScopes);
   const sessions = new Sessions(options.pairingCode, options.sessionTtlMs ?? 15 * 60_000, service.store);
@@ -176,10 +179,11 @@ async function dispatchWuzzufAction(service: OrchestratorService, action: Wuzzuf
   }
 }
 
-function applySecurityHeaders(req: IncomingMessage, res: ServerResponse, allowedOrigin: string): void {
+function applySecurityHeaders(req: IncomingMessage, res: ServerResponse, allowedOrigin: string | string[]): void {
   const origin = req.headers.origin; const host = req.headers.host ?? ''; const dashboardOrigin = /^(?:127\.0\.0\.1|localhost):\d+$/.test(host) ? `http://${host}` : undefined;
-  if (origin && origin !== allowedOrigin && origin !== dashboardOrigin) throw new HttpError(403, 'Origin denied');
-  if (origin === allowedOrigin) res.setHeader('access-control-allow-origin', allowedOrigin);
+  const allowed = Array.isArray(allowedOrigin) ? allowedOrigin : [allowedOrigin];
+  if (origin && !allowed.includes(origin) && origin !== dashboardOrigin) throw new HttpError(403, 'Origin denied');
+  if (origin && (allowed.includes(origin) || origin === dashboardOrigin)) res.setHeader('access-control-allow-origin', origin);
   res.setHeader('vary', 'Origin'); res.setHeader('access-control-allow-methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS'); res.setHeader('access-control-allow-headers', 'authorization,content-type,x-csrf-token,x-correlation-id,if-match');
   res.setHeader('x-content-type-options', 'nosniff'); res.setHeader('cache-control', 'no-store'); res.setHeader('referrer-policy', 'no-referrer');
   res.setHeader('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");

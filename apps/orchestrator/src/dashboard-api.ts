@@ -556,11 +556,28 @@ export async function handleDashboardRequest(
 
     if (request.method === 'POST' && url.pathname === '/v1/dashboard/chat') {
       const body = await readBody(request);
-      response.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-correlation-id': correlationId });
-      for await (const chunk of service.chat(text(body.text, 'text', 8_000), typeof body.profileId === 'string' ? text(body.profileId, 'profileId', 100) : undefined)) {
-        response.write(`${JSON.stringify({ type: 'chunk', text: chunk })}\n`);
+      const stream = service.chat(
+        text(body.text, 'text', 8_000),
+        typeof body.profileId === 'string' ? text(body.profileId, 'profileId', 100) : undefined
+      )[Symbol.asyncIterator]();
+      let first: IteratorResult<string>;
+      try {
+        first = await stream.next();
+      } catch {
+        throw new DashboardHttpError(503, 'OpenClaw assistant is unavailable; check the local gateway and try again');
       }
-      response.end(`${JSON.stringify({ type: 'done' })}\n`);
+      response.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-correlation-id': correlationId });
+      try {
+        if (!first.done) response.write(`${JSON.stringify({ type: 'chunk', text: first.value })}\n`);
+        while (true) {
+          const result = await stream.next();
+          if (result.done) break;
+          response.write(`${JSON.stringify({ type: 'chunk', text: result.value })}\n`);
+        }
+        response.end(`${JSON.stringify({ type: 'done' })}\n`);
+      } catch {
+        response.end(`${JSON.stringify({ type: 'error', error: 'OpenClaw assistant disconnected; try again', correlationId })}\n`);
+      }
       return true;
     }
 
@@ -614,21 +631,21 @@ function dashboardApplications(service: OrchestratorService) {
 
 function publicApplication(application: PreparedApplicationRecord, includeAnswerValues = false) {
   return {
-    id: application.id,
-    jobId: application.jobId,
-    state: application.state,
-    createdAt: application.createdAt,
-    updatedAt: application.updatedAt,
-    dryRun: application.dryRun,
+    id: application.id ?? '',
+    jobId: application.jobId ?? '',
+    state: application.state ?? 'UNKNOWN',
+    createdAt: application.createdAt ?? new Date().toISOString(),
+    updatedAt: application.updatedAt ?? new Date().toISOString(),
+    dryRun: application.dryRun ?? true,
     job: application.job ? { title: application.job.title, employer: application.job.employer, location: application.job.location } : undefined,
-    answers: application.answers.map((answer) => ({ ...answer, value: includeAnswerValues ? answer.value : answer.confirmationRequired ? '' : answer.value })),
-    filledFields: application.filledFields,
-    skippedFields: application.skippedFields,
-    validationErrors: application.validationErrors,
-    sensitiveFields: application.sensitiveFields,
-    submissionAllowed: application.submissionAllowed,
+    answers: (application.answers ?? []).map((answer) => ({ ...answer, value: includeAnswerValues ? answer.value : answer.confirmationRequired ? '' : answer.value })),
+    filledFields: application.filledFields ?? [],
+    skippedFields: application.skippedFields ?? [],
+    validationErrors: application.validationErrors ?? [],
+    sensitiveFields: application.sensitiveFields ?? [],
+    submissionAllowed: application.submissionAllowed ?? false,
     lastSuccessfulStep: application.lastSuccessfulStep,
-    errors: application.errors,
+    errors: application.errors ?? [],
     submittedAt: application.submittedAt
   };
 }
@@ -649,7 +666,7 @@ function publicAudit(event: ReturnType<OrchestratorService['store']['timeline']>
 function syncManualActions(service: OrchestratorService, applications: ReturnType<OrchestratorService['store']['listPreparedApplications']>): void {
   const existing = new Set(service.store.listManualActions().map((item) => item.id));
   for (const application of applications) {
-    if (!MANUAL_STATES.has(application.state)) continue;
+    if (!application.id || !application.state || !MANUAL_STATES.has(application.state)) continue;
     const id = `application:${application.id}:${application.state}`;
     if (existing.has(id)) continue;
     service.store.saveManualAction({
@@ -658,7 +675,7 @@ function syncManualActions(service: OrchestratorService, applications: ReturnTyp
       kind: application.state.toLocaleLowerCase(),
       status: 'open',
       title: manualTitle(application.state),
-      detail: { state: application.state, jobId: application.jobId }
+      detail: { state: application.state, jobId: application.jobId ?? '' }
     });
   }
 }
