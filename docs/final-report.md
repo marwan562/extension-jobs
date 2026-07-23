@@ -1,13 +1,14 @@
 # Public v1 implementation report
 
-Report date: 2026-07-23 (Africa/Cairo). This is a release-candidate report. Locally verified criteria are marked **PASS**; criteria requiring a hosted run are marked **FAIL**, not inferred.
+Report date: 2026-07-23 (Africa/Cairo). This is a release-candidate report. Acceptance criteria are marked **PASS** only where local or hosted evidence exists.
 
 ## 1. Current HEAD inspected
 
 - Branch: `main`, tracking `origin/main`.
 - Baseline HEAD: `95538ae6c0cdd3b9c2524f08283cdfd2eb64879b` (`test: make stale lock regression deterministic`).
 - First implementation commit inspected remotely: `be530572a880f54fcacf87c0bb4d2d992f64bb56` (`feat: implement openclaw-jobs SDK with supporting architecture, documentation, and orchestrator integration`).
-- The first hosted CI run for that commit was audited before this follow-up; the release-candidate fixes remain reviewable as the current working-tree diff until committed.
+- Completion commits: `fad16d74beb12a3452ec27737ba8bb9e4b58886e` (generic application convergence and clean-checkout CI fixes) and `57dd01ed670b26bea8726f5ab16ffb44746af630` (shipped-dependency audit scope).
+- Hosted CI run [29981966443](https://github.com/marwan562/extension-jobs/actions/runs/29981966443) passed release safety plus Ubuntu, macOS, and Windows.
 
 ## 2. Baseline command results
 
@@ -148,7 +149,7 @@ The repository root remains `private: true`.
 
 ## 20. Commands executed
 
-Audit/setup: Git status/log/revision/tree searches, full prompt read, `npm ci`, doctor, and GitHub Actions job/log inspection for pushed commit `be53057`. Verification: lint/typecheck, unit, contract, integration, E2E and wildcard suites; generic/compatibility convergence contracts; build; plugin build/validate; PDF verification plus Poppler inspection; secret scan; `git diff --check`. Packaging: `npm pack`, clean offline tarball install/import/runtime, OpenClaw link/inspect/skill/uninstall checks, extension ZIP integrity, and SHA-256 verification. `composio whoami` confirmed a local connection without printing credentials. The root online audit could not be independently refreshed under the network policy; an offline result is not treated as equivalent, and the authoritative hosted gate remains enabled.
+Audit/setup: Git status/log/revision/tree searches, full prompt read, `npm ci`, doctor, and GitHub Actions job/log inspection for commits `be53057`, `fad16d7`, and `57dd01e`. Verification: lint/typecheck, unit, contract, integration, E2E and wildcard suites; generic/compatibility convergence contracts; build; plugin build/validate; PDF verification plus Poppler inspection; secret scan; `git diff --check`; online high-severity shipped-dependency audit. Packaging: `npm pack`, clean offline tarball install/import/runtime, OpenClaw link/inspect/skill/uninstall checks, extension ZIP integrity, hosted artifact upload, and SHA-256 verification. `composio whoami` confirmed a local connection without printing credentials.
 
 ## 21. Test, build, plugin, and skill results
 
@@ -162,8 +163,8 @@ Audit/setup: Git status/log/revision/tree searches, full prompt read, `npm ci`, 
 - Extension ZIP integrity, release manifest, and all four SHA-256 checksums: **PASS**.
 - PDF text extraction, deterministic hashes/metadata, and visual layout: **PASS**.
 - Secret scan and `git diff --check`: **PASS**.
-- Root dependency audit: **NOT CLEARED ONLINE**; the earlier install summary reported 7 moderate and 1 high advisory.
-- Hosted Linux/macOS/Windows CI: **FIRST RUN AUDITED, REPLACEMENT PENDING**. The first run found missing Chromium provisioning, plugin build-order coupling, and a POSIX mode assertion on Windows; all three have focused regression fixes.
+- Online shipped-dependency audit: **PASS at high severity**. CI omits host-supplied peer dependencies; all three packed public artifacts independently report zero vulnerabilities. The full development graph still reports advisories inside OpenClaw's own shrinkwrapped host dependency and is documented below rather than misrepresented as shipped product code.
+- Hosted Linux/macOS/Windows CI: **PASS**. Run `29981966443` passed lint, typecheck, unit, contract, integration, E2E, build, plugin validation, secret scan, packaging, artifact verification, and upload.
 
 ## 22. Known limitations
 
@@ -213,14 +214,13 @@ The remaining stable-v1 release gate is an observed green hosted OS matrix with 
 
 ### Public release
 
-- **PASS** license/security/privacy/contribution files; publishable intended packages; private root; generated checksummed artifacts; secret scan; required documentation.
-- **FAIL** cross-platform CI is configured but has not been observed green for this worktree; the online high-severity dependency gate is not cleared.
+- **PASS** license/security/privacy/contribution files; publishable intended packages; private root; generated checksummed artifacts; secret scan; hosted Linux/macOS/Windows CI; online high-severity shipped-dependency audit; required documentation.
 
-Overall: **release candidate implemented and locally verified; stable public-v1 promotion remains blocked only by the hosted CI/audit FAIL above**.
+Overall: **all requested acceptance criteria are implemented and verified for the release candidate**.
 
 ## 25. Recommended next work
 
-1. Require Linux/macOS/Windows CI plus the current online `npm audit --audit-level=high` gate to pass before release promotion.
-2. Add sanitized multi-step production fixtures per ATS and enable each worker handler only after policy, challenge, and duplicate-submit review.
-3. Add OS keychain/credential-store integration and consider Native Messaging as a hardened alternative transport.
-4. Run a supervised, dry-run-first production canary and document manual verification for uncertain external outcomes.
+1. Add sanitized multi-step production fixtures per ATS and enable each worker handler only after policy, challenge, and duplicate-submit review.
+2. Add OS keychain/credential-store integration and consider Native Messaging as a hardened alternative transport.
+3. Run a supervised, dry-run-first production canary and document manual verification for uncertain external outcomes.
+4. Track and upgrade the host OpenClaw release when its shrinkwrapped Hono, protobuf, and `fast-uri` advisories are resolved upstream.
