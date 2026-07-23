@@ -90,5 +90,6 @@ test('orchestrator configuration defaults and validates the CDP endpoint at star
   assert.throws(() => loadOrchestratorConfig({ ...base, CHROME_CDP_ENDPOINT: 'ws://user:pass@127.0.0.1:9222' }), /credential-free/);
   assert.throws(() => loadOrchestratorConfig({ ...base, JOB_SOURCE_MODE: 'wuzuf' }), /Unsupported JOB_SOURCE_MODE/);
   assert.throws(() => loadOrchestratorConfig({ ...base, JOB_SOURCE_MODE: 'composio' }), /COMPOSIO_LINKEDIN_SEARCH_TOOL/);
-  assert.equal(loadOrchestratorConfig({ ...base, JOB_SOURCE_MODE: 'wuzzuf, indeed' }).JOB_SOURCE_MODE, 'wuzzuf,indeed');
+  assert.throws(() => loadOrchestratorConfig({ ...base, JOB_SOURCE_MODE: 'wuzzuf, indeed' }), /WORKER_TOOL_TOKEN/);
+  assert.equal(loadOrchestratorConfig({ ...base, JOB_SOURCE_MODE: 'wuzzuf, indeed', WORKER_TOOL_TOKEN: 'worker-token-with-at-least-32-characters' }).JOB_SOURCE_MODE, 'wuzzuf,indeed');
 });

@@ -4,7 +4,7 @@ Build and link using commands supported by the installed OpenClaw 2026.7 CLI:
 
 ```bash
 npm run plugin:build
-openclaw plugins install --link ./apps/openclaw-wuzzuf
+openclaw plugins install --link ./apps/openclaw-jobs
 openclaw plugins enable job-automation
 openclaw plugins inspect job-automation --runtime --json
 ```

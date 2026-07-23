@@ -1,11 +1,18 @@
 import type { ApplicationState, ErrorCode } from '../../shared-contracts/src/index.ts';
 
-export const allowedTransitions: Readonly<Record<ApplicationState, readonly ApplicationState[]>> = {
-  DISCOVERED: ['SCORED', 'CANCELLED'], SCORED: ['PREPARING', 'CANCELLED'],
+export const allowedTransitions: Readonly<Partial<Record<ApplicationState, readonly ApplicationState[]>>> = {
+  DISCOVERED: ['NORMALIZED', 'SCORED', 'CANCELLED'], NORMALIZED: ['DEDUPLICATED', 'CANCELLED'], DEDUPLICATED: ['SCORED', 'CANCELLED'],
+  SCORED: ['SELECTED', 'PREPARING', 'CANCELLED'], SELECTED: ['RESUME_TAILORING', 'APPLICATION_INSPECTING', 'CANCELLED'],
+  RESUME_TAILORING: ['RESUME_REVIEW_REQUIRED', 'FAILED_RETRYABLE', 'FAILED_PERMANENT', 'CANCELLED'],
+  RESUME_REVIEW_REQUIRED: ['RESUME_APPROVED', 'REJECTED', 'CANCELLED'], RESUME_APPROVED: ['APPLICATION_INSPECTING', 'CANCELLED'],
+  APPLICATION_INSPECTING: ['APPLICATION_REVIEW_REQUIRED', 'AUTH_REQUIRED', 'SECURITY_CHALLENGE_REQUIRED', 'FORM_CHANGED', 'POLICY_BLOCKED', 'FAILED_RETRYABLE', 'FAILED_PERMANENT', 'CANCELLED'],
+  APPLICATION_REVIEW_REQUIRED: ['APPROVED_FOR_FILL', 'REJECTED', 'CANCELLED'],
+  VALIDATING: ['AWAITING_SUBMISSION_APPROVAL', 'APPLICATION_REVIEW_REQUIRED', 'FORM_CHANGED', 'FAILED_RETRYABLE', 'FAILED_PERMANENT', 'CANCELLED'],
+  SECURITY_CHALLENGE_REQUIRED: ['APPLICATION_INSPECTING', 'CANCELLED'], POLICY_BLOCKED: ['CANCELLED'], REJECTED: [],
   PREPARING: ['AWAITING_REVIEW', 'AUTH_REQUIRED', 'SECURITY_CHECK_REQUIRED', 'FORM_CHANGED', 'FAILED_RETRYABLE', 'FAILED_PERMANENT', 'CANCELLED'],
   AWAITING_REVIEW: ['APPROVED_FOR_FILL', 'CANCELLED'], APPROVED_FOR_FILL: ['FILLING', 'CANCELLED'],
   FILLING: ['FILLED', 'FORM_CHANGED', 'FAILED_RETRYABLE', 'FAILED_PERMANENT', 'CANCELLED'],
-  FILLED: ['AWAITING_SUBMISSION_APPROVAL', 'CANCELLED'],
+  FILLED: ['VALIDATING', 'AWAITING_SUBMISSION_APPROVAL', 'CANCELLED'],
   AWAITING_SUBMISSION_APPROVAL: ['SUBMITTING', 'FORM_CHANGED', 'CANCELLED'],
   SUBMITTING: ['SUBMITTED', 'FAILED_PERMANENT'], SUBMITTED: [], AUTH_REQUIRED: ['PREPARING', 'CANCELLED'],
   SECURITY_CHECK_REQUIRED: ['PREPARING', 'CANCELLED'], FORM_CHANGED: ['PREPARING', 'CANCELLED'],
@@ -14,7 +21,7 @@ export const allowedTransitions: Readonly<Record<ApplicationState, readonly Appl
 
 export class WorkflowConflictError extends Error { readonly code: ErrorCode = 'WORKFLOW_STATE_CONFLICT'; }
 export function assertWorkflowTransition(from: ApplicationState, to: ApplicationState): void {
-  if (!allowedTransitions[from].includes(to)) throw new WorkflowConflictError(`Invalid application transition ${from} -> ${to}`);
+  if (!allowedTransitions[from]?.includes(to)) throw new WorkflowConflictError(`Invalid application transition ${from} -> ${to}`);
 }
 export interface ApplicationTransitionEvent {
   applicationId: string; previousState: ApplicationState; nextState: ApplicationState;

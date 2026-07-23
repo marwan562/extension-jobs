@@ -1,17 +1,18 @@
 interface ApprovedAnswer { fieldId: string; label: string; value: string; confirmationRequired: boolean; approved?: boolean }
-chrome.runtime.onMessage.addListener((message: { type: string; answers?: ApprovedAnswer[]; dryRun?: boolean }, _sender: unknown, respond: (value: unknown) => void) => {
-  if (message.type === 'inspect-form') { const fields = [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input:not([type="hidden"]), textarea, select')].filter((el) => isVisible(el)).slice(0, 100).map((el) => ({ id: el.id || el.name, label: accessibleName(el), type: el instanceof HTMLSelectElement ? 'select' : el.type || 'text', required: el.required, options: el instanceof HTMLSelectElement ? Array.from(el.options).map((o) => o.text.trim()).filter(Boolean) : [] })).filter((field) => field.label); respond({ ok: true, url: location.href, title: document.title, fields }); return true; }
-  if (message.type !== 'fill-approved') return;
-  const filled: string[] = []; const skipped: string[] = [];
-  for (const answer of message.answers ?? []) {
-    if (answer.confirmationRequired && !answer.approved) { skipped.push(answer.label); continue; }
-    const controls = [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('input, textarea, select')];
-    const control = controls.find((item) => accessibleName(item).toLowerCase().includes(answer.label.toLowerCase()) || answer.label.toLowerCase().includes(accessibleName(item).toLowerCase()));
-    if (!control) { skipped.push(answer.label); continue; }
-    if (!message.dryRun) { control.value = answer.value; control.dispatchEvent(new Event('input', { bubbles: true })); control.dispatchEvent(new Event('change', { bubbles: true })); }
-    filled.push(answer.label);
-  }
-  respond({ ok: true, filled, skipped, dryRun: message.dryRun !== false });
-});
-function accessibleName(control: HTMLElement): string { const id = control.id; const label = id ? document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(id)}"]`)?.textContent : ''; return (label || control.getAttribute('aria-label') || control.getAttribute('name') || '').trim(); }
+const marker = '__extensionJobsContentLoaded';
+if (!(globalThis as any)[marker]) {
+  (globalThis as any)[marker] = true;
+  chrome.runtime.onMessage.addListener((message: { type: string; answers?: ApprovedAnswer[]; dryRun?: boolean }, _sender: unknown, respond: (value: unknown) => void) => {
+    if (message.type === 'analyze-job') { respond(analyzeJob()); return true; }
+    if (message.type === 'inspect-form') { const fields = [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('form input:not([type="hidden"]):not([type="submit"]), form textarea, form select')].filter((element) => isVisible(element)).slice(0, 100).map((element) => ({ id: element.id || element.name, label: accessibleName(element), type: element instanceof HTMLSelectElement ? 'select' : element instanceof HTMLTextAreaElement ? 'textarea' : element.type || 'text', required: element.required, options: element instanceof HTMLSelectElement ? Array.from(element.options).map((option) => option.text.trim()).filter(Boolean) : [] })).filter((field) => field.id && field.label); respond({ ok: true, url: location.href, title: document.title.slice(0, 500), fields }); return true; }
+    if (message.type !== 'fill-approved') return;
+    const filled: string[] = []; const skipped: string[] = [];
+    for (const answer of message.answers ?? []) { if (answer.confirmationRequired && !answer.approved) { skipped.push(answer.label); continue; } const controls = [...document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>('form input, form textarea, form select')]; const control = controls.find((item) => accessibleName(item).toLowerCase() === answer.label.toLowerCase()); if (!control || control instanceof HTMLInputElement && control.type === 'file') { skipped.push(answer.label); continue; } if (!message.dryRun) { control.value = answer.value; control.dispatchEvent(new Event('input', { bubbles: true })); control.dispatchEvent(new Event('change', { bubbles: true })); } filled.push(answer.label); }
+    respond({ ok: true, filled, skipped, dryRun: message.dryRun !== false });
+  });
+}
+function analyzeJob() { let jsonLd: unknown; for (const script of document.querySelectorAll('script[type="application/ld+json"]')) { try { const value = JSON.parse(script.textContent ?? 'null') as unknown; if (containsJobPosting(value)) { jsonLd = value; break; } } catch { /* malformed page data is ignored */ } } const text = (selectors: string) => document.querySelector(selectors)?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 100_000) ?? ''; return { url: location.href, title: document.title.slice(0, 500), ...(jsonLd === undefined ? {} : { jsonLd }), safeMetadata: { title: text('h1'), employer: text('[data-testid="company-name"], [itemprop="hiringOrganization"], .company-name'), location: text('[data-testid="job-location"], [itemprop="jobLocation"], .location'), description: text('[data-testid="job-description"], [itemprop="description"], #jobDescriptionText, .jobs-description'), applicationUrl: applicationUrl() } }; }
+function containsJobPosting(value: unknown): boolean { if (Array.isArray(value)) return value.some(containsJobPosting); if (!value || typeof value !== 'object') return false; const record = value as Record<string, unknown>; return record['@type'] === 'JobPosting' || containsJobPosting(record['@graph']); }
+function applicationUrl(): string { const link = [...document.querySelectorAll<HTMLAnchorElement>('a[href]')].find((item) => /apply|application/i.test(item.textContent ?? '') && /^https?:/.test(item.href)); return link?.href.slice(0, 4_000) ?? location.href; }
+function accessibleName(control: HTMLElement): string { const id = control.id; const label = id ? document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(id)}"]`)?.textContent : ''; return (label || control.getAttribute('aria-label') || control.getAttribute('name') || '').replace(/\s+/g, ' ').trim().slice(0, 1_000); }
 function isVisible(element: HTMLElement): boolean { const style = getComputedStyle(element); const rect = element.getBoundingClientRect(); return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0; }

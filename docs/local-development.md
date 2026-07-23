@@ -72,10 +72,10 @@ CHROME_CDP_ENDPOINT=http://127.0.0.1:9222 EXTENSION_ID=<id> PAIRING_CODE=<code> 
 Build, validate, link, and configure the individual-tool plugin:
 
 ```sh
-npm run --workspace @extension-jobs/openclaw-wuzzuf build
-npm run --workspace @extension-jobs/openclaw-wuzzuf plugin:build
-npm run --workspace @extension-jobs/openclaw-wuzzuf plugin:validate
-openclaw plugins install --link ./apps/openclaw-wuzzuf
+npm run --workspace @extension-jobs/openclaw-jobs build
+npm run --workspace @extension-jobs/openclaw-jobs plugin:build
+npm run --workspace @extension-jobs/openclaw-jobs plugin:validate
+openclaw plugins install --link ./apps/openclaw-jobs
 openclaw plugins enable job-automation
 openclaw config set plugins.entries.job-automation.config.bridgeUrl "http://127.0.0.1:18790"
 openclaw config set plugins.entries.job-automation.config.toolToken "$OPENCLAW_JOB_TOOL_TOKEN"
@@ -95,7 +95,7 @@ COMPOSIO_USER_ID=local-user
 COMPOSIO_HOST_TOKEN=<random-secret-at-least-32-characters>
 COMPOSIO_TOOLKITS=wuzzuf,linkedin
 WUZZUF_ORCHESTRATOR_URL=http://127.0.0.1:18790
-COMPOSIO_WUZZUF_TOOL_TOKEN=<different-random-secret-at-least-32-characters>
+COMPOSIO_JOBS_TOOL_TOKEN=<different-random-secret-at-least-32-characters>
 npm run dev:composio
 ```
 

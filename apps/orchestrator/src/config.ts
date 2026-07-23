@@ -22,6 +22,8 @@ const environmentSchema = z.object({
   OPENCLAW_SESSION_KEY: z.string().default('agent:main:extension-job-copilot'),
   OPENCLAW_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(600).default(120),
   OPENCLAW_JOB_TOOL_TOKEN: z.string().min(32).optional(),
+  WORKER_TOOL_TOKEN: z.string().min(32).optional(),
+  COMPOSIO_JOBS_TOOL_TOKEN: z.string().min(32).optional(),
   COMPOSIO_WUZZUF_TOOL_TOKEN: z.string().min(32).optional(),
   OPENCLAW_JOB_TOOL_SCOPES: scopes.optional(),
   COMPOSIO_WUZZUF_TOOL_SCOPES: scopes.optional(),
@@ -29,6 +31,7 @@ const environmentSchema = z.object({
   COMPOSIO_LINKEDIN_SEARCH_ARGS: z.string().default('{}'),
 }).superRefine((value, context) => {
   if (!value.EXTENSION_ID && !value.DEV_ORIGIN) context.addIssue({ code: 'custom', message: 'Set EXTENSION_ID or a loopback DEV_ORIGIN' });
+  if (value.JOB_SOURCE_MODE !== 'development' && !value.WORKER_TOOL_TOKEN) context.addIssue({ code: 'custom', path: ['WORKER_TOOL_TOKEN'], message: 'Required outside development so browser queue payloads are authenticated and encrypted' });
   if (typeof value.JOB_SOURCE_MODE === 'string' && (value.JOB_SOURCE_MODE === 'multi' || value.JOB_SOURCE_MODE.split(',').includes('composio')) && !value.COMPOSIO_LINKEDIN_SEARCH_TOOL) context.addIssue({ code: 'custom', path: ['COMPOSIO_LINKEDIN_SEARCH_TOOL'], message: 'Required when JOB_SOURCE_MODE includes composio' });
   try { JSON.parse(value.COMPOSIO_LINKEDIN_SEARCH_ARGS); } catch { context.addIssue({ code: 'custom', path: ['COMPOSIO_LINKEDIN_SEARCH_ARGS'], message: 'COMPOSIO_LINKEDIN_SEARCH_ARGS must be valid JSON' }); }
 });

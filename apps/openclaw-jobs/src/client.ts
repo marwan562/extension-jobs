@@ -1,0 +1,8 @@
+export interface PluginConfig { bridgeUrl?: string; toolToken?: string; timeoutMs?: number; enableSubmissionTool?: boolean }
+export async function request(config: PluginConfig, path: string, method = 'GET', body?: unknown): Promise<any> {
+  const baseUrl = config.bridgeUrl ?? 'http://127.0.0.1:18790';
+  if (!config.toolToken) return failure('AUTHENTICATION_REQUIRED', 'Configure the scoped local daemon toolToken before using Extension Jobs.', false, 'job_automation_doctor');
+  try { const url = new URL(baseUrl); if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.username || url.password) return failure('ORCHESTRATOR_UNAVAILABLE', 'bridgeUrl must be a credential-free 127.0.0.1 HTTP URL.'); const response = await fetch(`${url.origin}${path}`, { method, headers: { 'x-openclaw-tool-token': config.toolToken, ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(config.timeoutMs ?? 60_000), redirect: 'error' }); const value = await response.json() as any; if (!response.ok) return value?.error ? { ok: false, error: value.error } : failure('INTERNAL_ERROR', `Local orchestrator returned ${response.status}.`, response.status >= 500); return value; }
+  catch { return failure('ORCHESTRATOR_UNAVAILABLE', 'The local Extension Jobs orchestrator is unavailable.', true, 'job_automation_doctor'); }
+}
+export function failure(code: string, message: string, retryable = false, recommendedNextTool?: string) { return { ok: false, error: { code, message, retryable, userActionRequired: !retryable, ...(recommendedNextTool ? { recommendedNextTool } : {}), correlationId: crypto.randomUUID() } }; }

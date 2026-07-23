@@ -1,0 +1,31 @@
+import { experimental_createToolkit, experimental_createTool } from '@composio/core';
+import { z } from 'zod/v3';
+import { JobsOrchestratorClient, type JobsOrchestratorClientOptions } from './orchestrator-client.ts';
+
+const envelope = z.record(z.unknown()); const empty = z.object({}).strict(); const id = z.string().min(1).max(100); const idempotencyKey = z.string().min(1).max(128).optional();
+export const composioJobsToolSlugs = ['STATUS', 'CONNECTOR_CAPABILITIES', 'SEARCH_JOBS', 'IMPORT_CURRENT_PAGE', 'GET_JOB_DETAILS', 'SCORE_JOB', 'PREPARE_APPLICATION', 'GET_APPLICATION_REVIEW', 'FILL_APPLICATION', 'REQUEST_SUBMISSION_APPROVAL', 'GET_APPLICATION_STATUS', 'CANCEL_APPLICATION', 'CREATE_CAMPAIGN', 'RUN_CAMPAIGN', 'PAUSE_CAMPAIGN', 'RESUME_CAMPAIGN', 'LIST_CAMPAIGNS', 'EMERGENCY_STOP'] as const;
+export function createJobsToolkit(options: JobsOrchestratorClientOptions = {}) {
+  const client = new JobsOrchestratorClient(options); const tool = (slug: typeof composioJobsToolSlugs[number], description: string, inputParams: z.ZodTypeAny, call: (input: Record<string, unknown>) => Promise<Record<string, unknown>>, preload = false) => experimental_createTool(slug, { name: `JOBS_${slug}`, description, ...(preload ? { preload: true } : {}), inputParams, outputParams: envelope, execute: call });
+  const tools = [
+    tool('STATUS', 'Read sanitized local daemon status. Safe to retry.', empty, () => client.call('/health', 'GET'), true),
+    tool('CONNECTOR_CAPABILITIES', 'Read fail-closed connector capability policy before other operations.', z.object({}).strict(), () => client.call('/v1/connectors', 'GET'), true),
+    tool('SEARCH_JOBS', 'Search enabled sources and return normalized jobs. Read-only.', z.object({ queries: z.array(z.string().min(1).max(200)).min(1).max(10), locations: z.array(z.string().min(1).max(200)).min(1).max(10), limit: z.number().int().min(1).max(100).optional() }).strict(), (input) => client.call('/v1/jobs/search', 'POST', input), true),
+    tool('IMPORT_CURRENT_PAGE', 'Import allowlisted structured job metadata; never accepts full HTML.', z.object({ url: z.string().url().max(4000), title: z.string().max(500).optional(), jsonLd: z.unknown().optional(), safeMetadata: z.record(z.union([z.string(), z.array(z.string()), z.boolean()])).optional() }).strict(), (input) => client.call('/v1/jobs/import-current-page', 'POST', input)),
+    tool('GET_JOB_DETAILS', 'Read normalized job details from the daemon system of record.', z.object({ jobId: id.optional(), url: z.string().url().max(4000).optional() }).strict(), (input) => client.call('/v1/jobs/details', 'POST', input)),
+    tool('SCORE_JOB', 'Score one job against verified local facts.', z.object({ jobId: id, profileId: id.optional() }).strict(), (input) => client.call('/v1/jobs/score', 'POST', input), true),
+    tool('PREPARE_APPLICATION', 'Prepare a review-first application. Never submits.', z.object({ jobId: id.optional(), url: z.string().url().max(4000).optional(), profileId: id.optional(), dryRun: z.boolean().default(true), idempotencyKey }).strict(), (input) => client.wuzzuf('WUZZUF_PREPARE_APPLICATION', input), true),
+    tool('GET_APPLICATION_REVIEW', 'Read sanitized application review and blockers.', z.object({ applicationId: id }).strict(), (input) => client.wuzzuf('WUZZUF_GET_APPLICATION_REVIEW', input), true),
+    tool('FILL_APPLICATION', 'Fill reviewed fields and stop before submission. No approval token is accepted.', z.object({ applicationId: id, dryRun: z.boolean().default(true), idempotencyKey }).strict(), (input) => client.wuzzuf('WUZZUF_FILL_APPLICATION', input)),
+    tool('REQUEST_SUBMISSION_APPROVAL', 'Request trusted extension approval. Cannot approve and receives no approval token.', z.object({ applicationId: id, ttlSeconds: z.number().int().min(30).max(300).optional(), idempotencyKey }).strict(), (input) => client.wuzzuf('WUZZUF_REQUEST_SUBMISSION_APPROVAL', input)),
+    tool('GET_APPLICATION_STATUS', 'Read persistent application status.', z.object({ applicationId: id }).strict(), (input) => client.wuzzuf('WUZZUF_GET_APPLICATION_STATUS', input), true),
+    tool('CANCEL_APPLICATION', 'Cancel active local application work.', z.object({ applicationId: id, idempotencyKey }).strict(), (input) => client.wuzzuf('WUZZUF_CANCEL_APPLICATION', input)),
+    tool('CREATE_CAMPAIGN', 'Create a durable review-gated campaign.', z.object({ name: z.string().min(1).max(100), profileId: id, searchQueries: z.array(z.string()).min(1).max(10), locations: z.array(z.string()).min(1).max(10), minimumMatchScore: z.number().min(0).max(100).optional(), maxApplicationsPerRun: z.number().int().min(1).max(100).optional(), maxApplicationsPerDay: z.number().int().min(1).max(200).optional(), dryRun: z.boolean().default(true), idempotencyKey }).strict(), (input) => client.call('/v1/campaigns', 'POST', input)),
+    tool('RUN_CAMPAIGN', 'Run one campaign under daemon limits and approval policy.', z.object({ campaignId: id, idempotencyKey }).strict(), (input) => client.call(`/v1/campaigns/${encodeURIComponent(String(input.campaignId))}/run`, 'POST', input)),
+    tool('PAUSE_CAMPAIGN', 'Pause future campaign work.', z.object({ campaignId: id, idempotencyKey }).strict(), (input) => client.call(`/v1/campaigns/${encodeURIComponent(String(input.campaignId))}/pause`, 'POST', input)),
+    tool('RESUME_CAMPAIGN', 'Resume a campaign without changing approval policy.', z.object({ campaignId: id, idempotencyKey }).strict(), (input) => client.call(`/v1/campaigns/${encodeURIComponent(String(input.campaignId))}/resume`, 'POST', input)),
+    tool('LIST_CAMPAIGNS', 'List durable campaigns and sanitized status.', empty, async () => { const value = await client.call('/v1/dashboard', 'GET') as any; return value?.error ? value : { ok: true, data: { campaigns: value.campaigns }, correlationId: crypto.randomUUID() }; }, true),
+    tool('EMERGENCY_STOP', 'Immediately stop local automation. Optional administrative mutation.', empty, () => client.call('/v1/emergency-stop', 'POST', {}))
+  ];
+  return experimental_createToolkit('JOBS', { name: 'jobs', description: 'Local Extension Jobs operations routed through one authenticated loopback daemon. Approval and submission secrets are never exposed.', tools });
+}
+export { JobsOrchestratorClient } from './orchestrator-client.ts';

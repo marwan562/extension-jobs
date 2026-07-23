@@ -1,18 +1,14 @@
 # Known limitations
 
-- Wuzzuf can change markup or application steps. Unknown layouts fail closed with `WUZZUF_UNSUPPORTED_LAYOUT` and a local diagnostic screenshot; selectors/fixtures must then be reviewed.
-- Multi-step forms are detected and fixture-covered, but the adapter does not automatically advance arbitrary step sequences. Prepare again after a supported adapter update.
-- CAPTCHA, anti-bot, MFA, and security challenges are never bypassed. The managed tab remains open so they can be completed manually in the connected Chrome profile; retry only after it reaches a normal Wuzzuf page.
-- Production Wuzzuf automation supports Chromium CDP through Google Chrome only. Playwright's CDP connection has lower fidelity than its native protocol, and Chrome/Playwright version mismatches can surface as unsupported browser operations.
-- Chrome may reject remote debugging with its normal default profile. Use the documented dedicated profile and sign into Wuzzuf once there when required.
-- Playwright exposes no safe CDP disconnect that is guaranteed to preserve the browser process. Shutdown intentionally avoids `browser.close()` and relies on process exit to release the transport, so a stale connection can require restarting the orchestrator.
-- The first existing Chrome browser context is used. If Chrome exposes no context, automation fails with `CHROME_CDP_NO_CONTEXT`; no incognito context is created as a fallback.
-- A running application browser page is process-local. After an orchestrator restart, the Chrome tab may remain visible and durable review/status remains available, but fill/submit requires preparing a new active session.
-- Browser operations are persisted and leased through the durable queue, but the orchestrator currently claims them inline; moving production claims into the standalone `playwright-worker` process remains an architectural migration.
-- Resume parsing is deterministic and limited to PDF/text/Markdown contact, links, and a skills line. Resume approval is explicit. Uploaded bytes remain in the local SQLite database.
-- Only verified high-confidence non-sensitive values fill automatically. Salary, sponsorship, work authorization, legal, demographic, disability, clearance, relocation, and file questions remain blocked for human review.
-- Composio custom toolkits run in the TypeScript process and are not supported through Composio MCP sessions. The SDK is experimental and its prefix/config API may change.
-- The Composio host must remain running because custom Wuzzuf execution is in-process. Its persisted session ID can become stale; startup recreates it, but an execution failure is returned without automatic retry to avoid duplicating writes.
-- Wuzzuf connection state is a local logical record for one configured user. Disconnecting does not log out of Wuzzuf, delete Chrome data, or close personal Chrome; it only releases application-managed automation state when no application is active.
-- Live Wuzzuf submission is deliberately untested. Automated coverage uses the loopback mock site; production use should begin in dry-run.
-- Native Messaging and OS credential-store integration remain future hardening; current transport is loopback with exact-origin CORS, pairing, short sessions, rate limits, and timeouts.
+- Production Wuzzuf compatibility operations, generic browser-backed discovery, and resume rendering cross the authenticated standalone-worker boundary. Generic ATS application handlers for Greenhouse, Lever, Ashby, Workable, SmartRecruiters, and Workday remain fail-closed until their production connector is explicitly enabled and maintained; their semantic inspect/fill/validate/approval contracts are fixture-tested.
+- The Wuzzuf compatibility facade remains a separate API surface over the shared daemon, queue, policies, profile facts, approvals, and persistence. A later stable release can retire those aliases after downstream clients migrate to the generic application routes.
+- Indeed and LinkedIn offer safe current-page import and destination routing; Bayt, Glassdoor, and ZipRecruiter advertise truthful assisted/manual or configured discovery capabilities rather than unattended application support.
+- Wuzzuf and other job sites can change markup or steps. Unknown layouts and changed fingerprints fail closed. Arbitrary multi-step progression is not inferred.
+- CAPTCHA, anti-bot, MFA, and security challenges are never bypassed. Complete them manually in the user-controlled Chrome profile and re-inspect afterward.
+- Production browser automation supports Chromium CDP. Chrome may require a dedicated remote-debugging profile, and Playwright CDP has lower fidelity than its native protocol.
+- Browser page handles are process-local. After a worker restart the tab may remain, but an interrupted fill/submit flow requires review and a new active session. Uncertain submissions are never retried.
+- Live production submission is deliberately untested. Automated submission coverage uses local fixtures; first use should remain dry-run and review-gated.
+- Composio custom toolkits run in the TypeScript host rather than MCP. The SDK is experimental; sessions may become stale, and uncertain writes are returned without retry.
+- Native Messaging and OS credential-store integration remain future hardening. The current transport is authenticated loopback with exact-origin CORS, distinct scoped credentials, short sessions, rate/body limits, URL allowlists, and timeouts.
+- The local install summary reported seven moderate and one high npm advisory before the final implementation pass. Clean offline installs of the three public tarballs reported zero vulnerabilities, but the root advisory graph was not independently refreshed from the registry because the network audit request was unavailable. Do not treat that as a cleared online audit.
+- Linux/macOS/Windows CI is configured, but this uncommitted workspace cannot prove a remote matrix run. Stable-v1 release promotion should require that hosted matrix and the online high-severity audit gate to pass.

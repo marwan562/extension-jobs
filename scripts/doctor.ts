@@ -19,8 +19,9 @@ report(await reachable('http://127.0.0.1:18790/health/live') ? 'PASS' : 'WARN', 
 report(await reachable('http://127.0.0.1:18791/health') ? 'PASS' : 'WARN', 'Composio host', await reachable('http://127.0.0.1:18791/health') ? 'reachable' : 'not running', 'Configure COMPOSIO_API_KEY and run: npm run dev:composio');
 const chrome = await reachable(process.env.CHROME_CDP_ENDPOINT ?? 'http://127.0.0.1:9222/json/version'); report(chrome ? 'PASS' : 'WARN', 'Chrome CDP', chrome ? 'reachable on loopback' : 'not reachable', 'Start user-controlled Chrome with remote debugging on the configured loopback port.');
 const openclaw = command('openclaw', ['--version']); report(openclaw.status === 0 ? 'PASS' : 'WARN', 'OpenClaw', openclaw.status === 0 ? openclaw.stdout.trim().split('\n').at(-1) ?? 'installed' : 'not available', 'Install OpenClaw, then run: npm run openclaw:install');
-report(existsSync('apps/openclaw-wuzzuf/openclaw.plugin.json') ? 'PASS' : 'FAIL', 'OpenClaw plugin', 'manifest present', 'Run: npm run plugin:build');
+report(existsSync('apps/openclaw-jobs/openclaw.plugin.json') ? 'PASS' : 'FAIL', 'OpenClaw plugin', 'generic manifest present', 'Run: npm run plugin:build');
 report(process.env.COMPOSIO_API_KEY ? 'PASS' : 'WARN', 'Composio API', process.env.COMPOSIO_API_KEY ? 'configured (value redacted)' : 'not configured', 'Set COMPOSIO_API_KEY in .env; never expose it to the extension.');
 report(process.env.OPENCLAW_JOB_TOOL_TOKEN ? 'PASS' : 'WARN', 'Tool credential', process.env.OPENCLAW_JOB_TOOL_TOKEN ? 'configured (value redacted)' : 'not configured', 'Generate a unique 32+ character OPENCLAW_JOB_TOOL_TOKEN without submission scope.');
-report(process.env.COMPOSIO_WUZZUF_TOOL_TOKEN ? 'PASS' : 'WARN', 'Composio credential', process.env.COMPOSIO_WUZZUF_TOOL_TOKEN ? 'configured separately (value redacted)' : 'not configured', 'Generate a distinct 32+ character COMPOSIO_WUZZUF_TOOL_TOKEN.');
+const composioJobsToken = process.env.COMPOSIO_JOBS_TOOL_TOKEN ?? process.env.COMPOSIO_WUZZUF_TOOL_TOKEN;
+report(composioJobsToken ? 'PASS' : 'WARN', 'Composio credential', composioJobsToken ? 'configured separately (value redacted)' : 'not configured', 'Generate a distinct 32+ character COMPOSIO_JOBS_TOOL_TOKEN.');
 process.exitCode = failures ? 1 : 0;

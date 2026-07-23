@@ -1,0 +1,17 @@
+name: Bug report
+description: Report a reproducible defect without private applicant data
+body:
+  - type: markdown
+    attributes:
+      value: Never attach credentials, cookies, resumes, approval tokens, or production application data.
+  - type: input
+    id: version
+    attributes: { label: Version, placeholder: 1.0.0-rc.1 }
+    validations: { required: true }
+  - type: textarea
+    id: reproduction
+    attributes: { label: Sanitized reproduction, description: Include commands, connector, expected behavior, and actual behavior. }
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes: { label: Redacted logs, render: shell }

@@ -1,41 +1,47 @@
-# OpenClaw Job Automation
+# Extension Jobs
 
-Local-first, review-first job discovery and application automation for OpenClaw, Composio, and Chrome. Wuzzuf is implemented once: both agent integrations call the authenticated loopback orchestrator, which owns policy, persistence, scoring, auditing, and a Playwright adapter connected to the user's existing Google Chrome profile over CDP.
+Extension Jobs is a local-first, review-first toolkit for job discovery, grounded resume tailoring, and assisted applications. A loopback orchestrator owns policy, persistence, approvals, audit history, and queues; browser and rendering work is isolated behind worker contracts. OpenClaw, Composio, the Chrome extension, and the CLI are thin clients of the same local system.
 
-```text
-OpenClaw individual tools ─┐
-                          ├─> 127.0.0.1 orchestrator -> WuzzufToolService -> WuzzufAdapter -> existing Chrome over CDP -> Wuzzuf
-Composio custom toolkit ──┘
-```
+Wuzzuf remains supported through compatibility APIs. Generic contracts also cover Indeed, LinkedIn, Bayt, Glassdoor, ZipRecruiter, major ATS destinations, employer-site handoff, email handoff, and safe current-page import. Each connector advertises truthful capabilities and unknown hosts or layouts fail closed.
 
 ## Quick start
 
-Requires Node.js 24+ and Google Chrome. Start Chrome with remote debugging before the orchestrator:
+Requires Node.js 24+ and Google Chrome.
 
 ```sh
-npm install
+npm ci
+npm run extension-jobs -- init
 npm run doctor
 npm run typecheck
 npm test
 npm run build
-open -na "Google Chrome" --args --remote-debugging-port=9222
-EXTENSION_ID=<chrome-extension-id> PAIRING_CODE=<random-secret> OPENCLAW_JOB_TOOL_TOKEN=<random-secret> JOB_SOURCE_MODE=wuzzuf npm start
+npm run extension-jobs -- start
 ```
 
-Set `CHROME_CDP_ENDPOINT=http://127.0.0.1:9222` (the default). Open the extension's Wuzzuf view and choose **Open Wuzzuf login**. A new managed tab appears in that Chrome window and shares its cookies and profile. The project never requests or returns Wuzzuf passwords, cookies, or profile data. `WUZZUF_DATA_DIR` is unused in production CDP mode.
+Load `apps/extension` as an unpacked Manifest V3 extension, pair it with the one-time code in your private `.env`, and enable only the connector origins you use. Production browser automation connects to an explicitly configured Chrome CDP endpoint and uses the user's existing authenticated browser profile; the project never asks an agent for site passwords or cookies.
 
-## Wuzzuf actions
+## Packages
 
-The common orchestrator API implements connection management, search, full job details, profile scoring, application preparation, safe fill, review, human approval requests, idempotent submission, status, and cancellation. An agent can request approval but cannot grant it: only a paired extension session can approve the exact reviewed job, resume, answers, profile snapshot, and form fingerprint. The one-use token is returned only to that extension decision flow, kept in extension memory, and only its hash is persisted.
+- `@extension-jobs/cli`: local setup, diagnostics, lifecycle, resume vault, connector, plugin, and extension commands.
+- `@extension-jobs/openclaw-jobs`: generic focused OpenClaw tools plus the bundled `extension-jobs` skill.
+- `@extension-jobs/composio-jobs`: thin local Composio toolkit using its own least-privilege credential.
+- `packages/shared-contracts`, `connector-sdk`, `site-policy-registry`, `destination-resolver`, `universal-form-engine`: public v1 domain boundaries.
+- `resume-importers`, `resume-tailor`, `resume-renderer`, `artifact-store`: fact-grounded resume pipeline.
 
-The Composio SDK exposes session-scoped custom-tool slugs such as `LOCAL_WUZZUF_SEARCH_JOBS`. OpenClaw exposes individual tools such as `wuzzuf_search_jobs`, `wuzzuf_request_submission_approval`, `campaign_run`, and `job_automation_emergency_stop`; compatibility aliases for the earlier focused helper names remain temporarily. See [local development](docs/local-development.md), [architecture](docs/architecture.md), [extension installation](docs/extension-installation.md), and [known limitations](docs/known-limitations.md).
+## Safety invariants
 
-## Safety
+- Preparation is dry-run by default. Unknown capabilities, hosts, layouts, fields, redirects, and states are rejected.
+- Only verified facts can be filled or included in tailored resumes. Sensitive and ambiguous answers require review.
+- Agents can request submission approval but cannot grant it. Approval is bound to the exact reviewed inputs and one form fingerprint.
+- Final submission is duplicate-protected, has one attempt, and is never automatically retried after an uncertain result.
+- CAPTCHA, MFA, anti-bot, and security challenges stop automation and require manual action.
+- Services bind to `127.0.0.1`; extension origins, sessions, scopes, body sizes, rates, URLs, redirects, and timeouts are constrained.
+- Resume bytes and generated artifacts remain in a private local vault. No telemetry or hosted backend is included.
 
-- Dry-run defaults to true and preparation never submits.
-- Sensitive, unknown, ambiguous, and low-confidence answers are skipped.
-- Resume bytes are stored only in local SQLite and uploaded only after explicit resume approval.
-- Services bind to `127.0.0.1`; CORS accepts one exact extension origin; sessions are short-lived.
-- URLs and redirects are restricted to Wuzzuf or the explicitly configured loopback fixture origin.
-- Cookies, browser profiles, approval internals, resumes, and backend secrets are never returned to agent integrations or content scripts.
-- Production Wuzzuf accounts are never used by automated tests.
+Start with [architecture](docs/architecture.md), [local development](docs/local-development.md), [CLI](docs/cli.md), [connector SDK](docs/connector-sdk.md), [security](SECURITY.md), [privacy](PRIVACY.md), and [known limitations](docs/known-limitations.md). Public artifacts are built with `npm run release:package` and verified against `output/release/SHA256SUMS`.
+
+## Project status
+
+`1.0.0-rc.1` is a release candidate. Production browser-backed discovery, Wuzzuf compatibility operations, and resume rendering run through the authenticated standalone worker. Generic contracts, resume/ATS layers, daemon-authoritative CLI state, and the trusted extension review/administration surfaces are implemented and tested. Stable promotion still requires an observed green hosted OS matrix and a refreshed online dependency audit; see the acceptance report and known limitations.
+
+Licensed under the [MIT License](LICENSE).

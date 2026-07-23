@@ -4,5 +4,5 @@
   "private": true,
   "type": "module",
   "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.json --noEmit", "start": "node --env-file-if-exists=../../.env dist/main.js" },
-  "dependencies": { "@composio/core": "^0.13.1", "@extension-jobs/composio-wuzzuf": "file:../../packages/composio-wuzzuf" }
+  "dependencies": { "@composio/core": "^0.13.1", "@extension-jobs/composio-jobs": "file:../../packages/composio-jobs", "@extension-jobs/composio-wuzzuf": "file:../../packages/composio-wuzzuf" }
 }

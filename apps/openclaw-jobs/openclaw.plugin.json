@@ -1,0 +1,103 @@
+{
+  "id": "extension-jobs",
+  "name": "Extension Jobs",
+  "description": "Local-first review-gated job search, resume, application, and campaign tools.",
+  "version": "1.0.0-rc.1",
+  "skills": [
+    "./skills/extension-jobs"
+  ],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "bridgeUrl": {
+        "type": "string",
+        "default": "http://127.0.0.1:18790"
+      },
+      "toolToken": {
+        "type": "string",
+        "minLength": 32,
+        "description": "Distinct scoped token for the local daemon. Tools fail closed until configured."
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 1000,
+        "maximum": 300000,
+        "default": 60000
+      },
+      "enableSubmissionTool": {
+        "type": "boolean",
+        "default": false,
+        "description": "Explicitly enable the submission tool. Human approval is still mandatory."
+      }
+    },
+    "additionalProperties": false
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "job_automation_status",
+      "job_automation_doctor",
+      "job_automation_emergency_stop",
+      "job_automation_clear_emergency_stop",
+      "job_automation_get_audit_events",
+      "jobs_get_connector_capabilities",
+      "jobs_get_connection_status",
+      "jobs_open_login",
+      "candidate_profile_list",
+      "candidate_profile_get",
+      "candidate_profile_update_preferences",
+      "candidate_profile_list_resumes",
+      "candidate_profile_import_resume",
+      "candidate_profile_select_resume",
+      "candidate_profile_approve_resume",
+      "candidate_profile_get_resume_variants",
+      "jobs_search",
+      "jobs_import_current_page",
+      "jobs_get_details",
+      "jobs_score",
+      "jobs_explain_match",
+      "jobs_shortlist",
+      "jobs_reject",
+      "jobs_tailor_resume",
+      "jobs_get_tailored_resume_review",
+      "jobs_approve_tailored_resume",
+      "jobs_get_resume_artifact",
+      "jobs_prepare_application",
+      "jobs_get_application_review",
+      "jobs_set_application_answer",
+      "jobs_fill_application",
+      "jobs_validate_application",
+      "jobs_request_submission_approval",
+      "jobs_submit_application",
+      "jobs_cancel_application",
+      "jobs_get_application_status",
+      "campaign_create",
+      "campaign_preview",
+      "campaign_update",
+      "campaign_run",
+      "campaign_pause",
+      "campaign_resume",
+      "campaign_cancel",
+      "campaign_get",
+      "campaign_list",
+      "campaign_get_activity",
+      "wuzzuf_create_connection",
+      "wuzzuf_open_login",
+      "wuzzuf_get_auth_status",
+      "wuzzuf_verify_connection",
+      "wuzzuf_disconnect",
+      "wuzzuf_search_jobs",
+      "wuzzuf_get_job_details",
+      "wuzzuf_score_job",
+      "wuzzuf_prepare_application",
+      "wuzzuf_fill_application",
+      "wuzzuf_get_application_review",
+      "wuzzuf_request_submission_approval",
+      "wuzzuf_submit_application",
+      "wuzzuf_get_application_status",
+      "wuzzuf_cancel_application"
+    ]
+  }
+}

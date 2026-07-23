@@ -1,5 +1,7 @@
 import type { FieldAnswer, Job, RawJob } from '../../shared/src/domain.ts';
 import { ChromeCdpManager, type BrowserConnectionManager } from './chrome-cdp-manager.ts';
+import { importCurrentPage } from '../../destination-resolver/src/index.ts';
+import { normalizeJob } from '../../shared/src/jobs.ts';
 export { WuzzufAdapter, WuzzufJobSource, type WuzzufAdapterOptions } from './wuzzuf-adapter.ts';
 export { ChromeCdpManager, chromeConnectionMessage, type BrowserConnectionManager, type ChromeCdpManagerOptions } from './chrome-cdp-manager.ts';
 export { normalizeWuzzufUrl, sourceIdFromWuzzufUrl, parseWuzzufSearchHtml, parseWuzzufJobHtml, detectWuzzufPageState } from './wuzzuf-parser.ts';
@@ -124,24 +126,11 @@ export class IndeedAdapter implements JobSiteAdapter {
   constructor(browserManager: BrowserConnectionManager = new ChromeCdpManager()) { this.browserManager = browserManager; }
 
   matches(url: URL): boolean { return url.hostname.includes('indeed.com'); }
-  async authenticate(): Promise<{ status: 'authenticated' }> { return { status: 'authenticated' }; }
+  async authenticate(): Promise<{ status: 'handoff_required'; reason: string }> { return { status: 'handoff_required', reason: 'Indeed is available in user-triggered current-page assistance mode.' }; }
   async discover(criteria: { queries: string[]; locations: string[] }): Promise<RawJob[]> {
     return new IndeedJobSource(this.browserManager).discover(criteria);
   }
-  async readJob(url: URL): Promise<Job> {
-    const { normalizeJob } = await import('../../shared/src/jobs.ts');
-    return normalizeJob({
-      source: this.id,
-      sourceId: url.searchParams.get('jk') || 'indeed-job',
-      url: url.href,
-      title: 'Job on Indeed',
-      employer: 'Indeed Employer',
-      location: 'Egypt',
-      description: 'Job description loaded from Indeed',
-      requiredSkills: [],
-      remote: false
-    });
-  }
+  async readJob(url: URL): Promise<Job> { return readAssistedCurrentPage(this.browserManager, url, this.id); }
   async startApplication(job: Job, context: AdapterContext): Promise<{ id: string; url: string }> {
     context.signal.throwIfAborted();
     const page = await this.browserManager.openTab(job.url);
@@ -199,7 +188,7 @@ export class LinkedInAdapter implements JobSiteAdapter {
   constructor(browserManager: BrowserConnectionManager = new ChromeCdpManager()) { this.browserManager = browserManager; }
 
   matches(url: URL): boolean { return url.hostname.includes('linkedin.com'); }
-  async authenticate(): Promise<{ status: 'authenticated' }> { return { status: 'authenticated' }; }
+  async authenticate(): Promise<{ status: 'handoff_required'; reason: string }> { return { status: 'handoff_required', reason: 'LinkedIn browser use is limited to user-triggered current-page assistance.' }; }
   async discover(criteria: { queries: string[]; locations: string[] }): Promise<RawJob[]> {
     const searchMode = process.env.JOB_SOURCE_MODE || 'fixture';
     if (searchMode === 'composio' || searchMode === 'multi') {
@@ -209,20 +198,7 @@ export class LinkedInAdapter implements JobSiteAdapter {
     }
     return [];
   }
-  async readJob(url: URL): Promise<Job> {
-    const { normalizeJob } = await import('../../shared/src/jobs.ts');
-    return normalizeJob({
-      source: this.id,
-      sourceId: url.pathname.split('/').pop() || 'linkedin-job',
-      url: url.href,
-      title: 'Job on LinkedIn',
-      employer: 'LinkedIn Employer',
-      location: 'Egypt',
-      description: 'Job description loaded from LinkedIn',
-      requiredSkills: [],
-      remote: false
-    });
-  }
+  async readJob(url: URL): Promise<Job> { return readAssistedCurrentPage(this.browserManager, url, this.id); }
   async startApplication(job: Job, context: AdapterContext): Promise<{ id: string; url: string }> {
     context.signal.throwIfAborted();
     const page = await this.browserManager.openTab(job.url);
@@ -271,4 +247,17 @@ export class LinkedInAdapter implements JobSiteAdapter {
   }
   async close(): Promise<void> { await Promise.all([...this.pages.values()].map((page) => page.close().catch(() => undefined))); this.pages.clear(); await this.browserManager.disconnect(); }
   private page(id: string): any { const page = this.pages.get(id); if (!page) throw new Error('Application session not found'); return page; }
+}
+
+async function readAssistedCurrentPage(browser: BrowserConnectionManager, url: URL, source: string): Promise<Job> {
+  const page = await browser.openTab(url.href);
+  try {
+    const payload = await page.evaluate(() => {
+      let jsonLd: unknown; for (const script of document.querySelectorAll('script[type="application/ld+json"]')) { try { const value = JSON.parse(script.textContent ?? 'null') as unknown; const records = Array.isArray(value) ? value : [value]; if (records.some((item) => item && typeof item === 'object' && ((item as Record<string, unknown>)['@type'] === 'JobPosting' || Array.isArray((item as Record<string, unknown>)['@graph'])))) { jsonLd = value; break; } } catch { /* untrusted malformed JSON-LD */ } }
+      const text = (selector: string) => document.querySelector(selector)?.textContent?.replace(/\s+/g, ' ').trim().slice(0, 100_000) ?? '';
+      return { jsonLd, title: document.title.slice(0, 500), safeMetadata: { title: text('h1'), employer: text('[data-testid="company-name"], .job-details-jobs-unified-top-card__company-name, [itemprop="hiringOrganization"]'), location: text('[data-testid="job-location"], .job-details-jobs-unified-top-card__primary-description-container, [itemprop="jobLocation"]'), description: text('[data-testid="job-description"], .jobs-description, [itemprop="description"], #jobDescriptionText') } };
+    });
+    const imported = importCurrentPage({ url: url.href, title: payload.title, ...(payload.jsonLd === undefined ? {} : { jsonLd: payload.jsonLd }), safeMetadata: payload.safeMetadata });
+    return normalizeJob({ source, sourceId: imported.source.externalId, url: imported.url, title: imported.title, employer: imported.employer, location: imported.location, description: imported.description, requiredSkills: imported.requiredSkills, preferredSkills: imported.preferredSkills, remote: imported.remote, discoveredAt: imported.source.discoveredAt });
+  } finally { await page.close().catch(() => undefined); }
 }

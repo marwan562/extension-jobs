@@ -1,0 +1,17 @@
+name: Connector request
+description: Propose a discovery source or application destination
+body:
+  - type: input
+    id: service
+    attributes: { label: Service and exact domains }
+    validations: { required: true }
+  - type: dropdown
+    id: role
+    attributes:
+      label: Role
+      options: [Discovery source, Application destination, Both]
+    validations: { required: true }
+  - type: textarea
+    id: capabilities
+    attributes: { label: Needed capabilities and known policy constraints }
+    validations: { required: true }

@@ -2,8 +2,8 @@
 
 The Wuzzuf toolkit is a local custom toolkit backed by the local orchestrator; it is not a native Wuzzuf OAuth integration. `apps/composio-host` keeps the local custom toolkit session alive and may add native Composio toolkits independently. The Composio API key stays in the host environment and is never sent to the extension. Wuzzuf browser credentials never pass through Composio.
 
-Composio uses its own hashed/scoped `COMPOSIO_WUZZUF_TOOL_TOKEN` and cannot reuse extension pairing. Its default scopes exclude approval and submission.
+Composio uses its own hashed/scoped `COMPOSIO_JOBS_TOOL_TOKEN` and cannot reuse extension pairing. Its default scopes exclude approval and submission. `COMPOSIO_WUZZUF_TOOL_TOKEN` remains a deprecated fallback for one migration release.
 
 ```bash
-COMPOSIO_API_KEY=... COMPOSIO_HOST_TOKEN=... COMPOSIO_WUZZUF_TOOL_TOKEN=... npm run dev:composio
+COMPOSIO_API_KEY=... COMPOSIO_HOST_TOKEN=... COMPOSIO_JOBS_TOOL_TOKEN=... npm run dev:composio
 ```
