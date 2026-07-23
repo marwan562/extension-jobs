@@ -45,7 +45,8 @@ jobs:
       - run: npm ci
       - run: npm run plugin:build
       - run: npm run plugin:validate
-      - run: npm audit --audit-level=high
+      - name: Audit shipped dependencies
+        run: npm audit --omit=peer --audit-level=high
       - run: npm run secret:scan
       - run: npm run release:package
       - name: Verify build artifacts
